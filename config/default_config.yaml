@@ -1,0 +1,32 @@
+# StreamManager Configuration File
+
+# Video source configuration
+video_source:
+  type: "usb_camera"  # Options: "gazebo_ros2", "usb_camera", "mavlink"
+  topic_name: "/camera/image_raw"  # For ROS2/Gazebo
+  device_id: 0  # For USB camera
+  mavlink_address: "udp://127.0.0.1:14550"  # For MAVLink
+  timeout_seconds: 5.0
+
+# Frame buffer configuration
+buffer:
+  max_size: 30  # Maximum number of frames to keep in buffer
+  target_fps: 50.0  # Target FPS for buffer filling (can be less than input FPS)
+  enable_timestamp_indexing: true
+
+# Frame scaling configuration
+scaling:
+  enabled: false  # Enable/disable frame scaling
+  target_width: 640
+  target_height: 480
+  interpolation_method: 1  # OpenCV interpolation method (0=NEAREST, 1=LINEAR, 2=CUBIC, etc.)
+
+# Iceoryx shared memory configuration
+iceoryx:
+  service_name: "StreamManager"
+  instance_name: "VideoStream"
+  event_name: "FrameEvent"
+  max_chunk_size: 6220800  # Max frame size in bytes (1920*1080*3)
+
+# Debug settings
+enable_debug_logging: true

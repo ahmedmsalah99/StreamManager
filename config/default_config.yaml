@@ -10,9 +10,8 @@ video_source:
 
 # Frame buffer configuration
 buffer:
-  max_size: 30  # Maximum number of frames to keep in buffer
+  max_size: 3  # Maximum number of frames to keep in buffer
   target_fps: 50.0  # Target FPS for buffer filling (can be less than input FPS)
-  enable_timestamp_indexing: true
 
 # Frame scaling configuration
 scaling:
@@ -21,12 +20,13 @@ scaling:
   target_height: 480
   interpolation_method: 1  # OpenCV interpolation method (0=NEAREST, 1=LINEAR, 2=CUBIC, etc.)
 
-# Iceoryx shared memory configuration
-iceoryx:
-  service_name: "StreamManager"
-  instance_name: "VideoStream"
-  event_name: "FrameEvent"
-  max_chunk_size: 6220800  # Max frame size in bytes (1920*1080*3)
+# ROS2 publishing configuration
+publishing:
+  current_frame_topic: "/stream_manager/current_frame"
+  delayed_frame_topic: "/stream_manager/delayed_frame"
+  delay_ms: 50  # Delay for delayed frame publishing in milliseconds
+  enable_current_publishing: true
+  enable_delayed_publishing: true
 
 # Debug settings
 enable_debug_logging: true

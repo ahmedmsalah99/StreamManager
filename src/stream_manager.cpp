@@ -1,18 +1,22 @@
 #include "stream_manager/stream_manager.hpp"
+#include <std_msgs/msg/header.hpp>
 #include <iostream>
 #include <fstream>
+#include <ament_index_cpp/get_package_share_directory.hpp>
+
 
 namespace stream_manager {
 
+
+
 StreamManager::StreamManager(const std::string& config_path)
-    : running_(false)
-    , initialized_(false)
-    , shutdown_requested_(false)
+    : rclcpp::Node("StreamManager")
     , current_processing_fps_(0.0)
-    , frames_in_current_second_(0) {
+    , frames_in_current_second_(0) 
+    {
     
     config_manager_ = std::make_unique<ConfigManager>();
-    last_fps_update_ = std::chrono::steady_clock::now();
+    last_fps_update_ = this->get_clock()->now();
     
     if (!config_path.empty()) {
         loadConfig(config_path);
@@ -23,15 +27,13 @@ StreamManager::StreamManager(const std::string& config_path)
 }
 
 StreamManager::StreamManager(const StreamManagerConfig& config)
-    : running_(false)
-    , initialized_(false)
-    , shutdown_requested_(false)
+    : rclcpp::Node("StreamManager")
     , current_processing_fps_(0.0)
     , frames_in_current_second_(0) {
     
     config_manager_ = std::make_unique<ConfigManager>();
     config_manager_->setConfig(config);
-    last_fps_update_ = std::chrono::steady_clock::now();
+    last_fps_update_ = this->get_clock()->now();
 }
 
 StreamManager::~StreamManager() {
@@ -39,7 +41,7 @@ StreamManager::~StreamManager() {
 }
 
 std::shared_ptr<cv::Mat> StreamManager::getFrame() {
-    if (!initialized_ || !video_source_) {
+    if (!video_source_) {
         return nullptr;
     }
     
@@ -47,23 +49,29 @@ std::shared_ptr<cv::Mat> StreamManager::getFrame() {
 }
 
 double StreamManager::getFPS() const {
-    if (!initialized_ || !video_source_) {
+    if (!video_source_) {
         return 0.0;
     }
     
     return video_source_->getFPS();
 }
 
-std::shared_ptr<cv::Mat> StreamManager::getClosestFrame(const std::chrono::steady_clock::time_point& target_time) const {
-    if (!initialized_ || !frame_buffer_) {
+std::shared_ptr<cv::Mat> StreamManager::getClosestFrame(const rclcpp::Time& target_time) const {
+    if (!frame_buffer_) {
         return nullptr;
     }
     
-    return frame_buffer_->getClosestFrame(target_time);
+    // convert ROS time to ns epoch and query buffer
+    uint64_t target_time_ns = static_cast<uint64_t>(target_time.nanoseconds());
+    auto metadata = frame_buffer_->getClosestFrameMetadataBySystemNs(target_time_ns);
+    if (!metadata) {
+        return nullptr;
+    }
+    return frame_buffer_->getFrameFromOwnedData(*metadata);
 }
 
 std::shared_ptr<cv::Mat> StreamManager::getFrameByIdx(size_t index) const {
-    if (!initialized_ || !frame_buffer_) {
+    if (!frame_buffer_) {
         return nullptr;
     }
     
@@ -71,23 +79,25 @@ std::shared_ptr<cv::Mat> StreamManager::getFrameByIdx(size_t index) const {
 }
 
 std::shared_ptr<cv::Mat> StreamManager::getLatestBufferedFrame() const {
-    if (!initialized_ || !frame_buffer_) {
+    if (!frame_buffer_) {
         return nullptr;
     }
     
     return frame_buffer_->getLatestFrame();
 }
 
-std::shared_ptr<FrameMetadata> StreamManager::getClosestFrameMetadata(const std::chrono::steady_clock::time_point& target_time) const {
-    if (!initialized_ || !frame_buffer_) {
+std::shared_ptr<FrameMetadata> StreamManager::getClosestFrameMetadata(const rclcpp::Time& target_time) const {
+    if (!frame_buffer_) {
         return nullptr;
     }
     
-    return frame_buffer_->getClosestFrameMetadata(target_time);
+    // convert ROS time to ns epoch and leverage FrameBuffer's ns-based search
+    uint64_t target_time_ns = static_cast<uint64_t>(target_time.nanoseconds());
+    return frame_buffer_->getClosestFrameMetadataBySystemNs(target_time_ns);
 }
 
 std::shared_ptr<FrameMetadata> StreamManager::getFrameMetadataByIdx(size_t index) const {
-    if (!initialized_ || !frame_buffer_) {
+    if (!frame_buffer_) {
         return nullptr;
     }
     
@@ -95,44 +105,33 @@ std::shared_ptr<FrameMetadata> StreamManager::getFrameMetadataByIdx(size_t index
 }
 
 std::shared_ptr<FrameMetadata> StreamManager::getLatestBufferedFrameMetadata() const {
-    if (!initialized_ || !frame_buffer_) {
+    if (!frame_buffer_) {
         return nullptr;
     }
     
     return frame_buffer_->getLatestFrameMetadata();
 }
 
-std::shared_ptr<cv::Mat> StreamManager::getFrameFromSharedMemory() const {
-    if (!initialized_ || !frame_buffer_) {
+std::shared_ptr<cv::Mat> StreamManager::getFrameFromOwnedData(const FrameMetadata& metadata) const {
+    if (!frame_buffer_) {
         return nullptr;
     }
-    
-    return frame_buffer_->getLatestFrameFromSharedMemory();
+    return frame_buffer_->getFrameFromOwnedData(metadata);
 }
 
-std::shared_ptr<cv::Mat> StreamManager::getFrameFromSharedMemory(const FrameMetadata& metadata) const {
-    if (!initialized_ || !frame_buffer_) {
-        return nullptr;
-    }
-    
-    return frame_buffer_->getFrameFromSharedMemory(metadata);
-}
 
 bool StreamManager::initialize() {
-    std::lock_guard<std::mutex> lock(manager_mutex_);
     
-    if (initialized_) {
-        return true;
-    }
-    
+
     if (!validateConfiguration()) {
         logError("Configuration validation failed: " + config_manager_->getValidationErrors());
         return false;
     }
-    
     // Create frame buffer
     const auto& config = config_manager_->getConfig();
-    frame_buffer_ = std::make_unique<FrameBuffer>(config.buffer, config.iceoryx, config.scaling);
+    frame_buffer_ = std::make_unique<FrameBuffer>(config.buffer);
+    // Setup ROS2 publishers
+    setupPublishers();
     
     // Create video source
     if (!createVideoSource()) {
@@ -146,41 +145,18 @@ bool StreamManager::initialize() {
         destroyVideoSource();
         return false;
     }
-    
     // Apply configuration
     applyConfiguration();
     
-    initialized_ = true;
-    running_ = true;
-    shutdown_requested_ = false;
-    
     // Start processing thread
-    processing_thread_ = std::thread(&StreamManager::processingThreadFunction, this);
-    
+    timer_ = rclcpp::create_timer(this, this->get_clock(), rclcpp::Duration::from_seconds(0.02), std::bind(&StreamManager::processingThreadFunction, this));
     logInfo("StreamManager initialized successfully");
     return true;
 }
 
 void StreamManager::shutdown() {
-    {
-        std::lock_guard<std::mutex> lock(manager_mutex_);
-        if (!running_) {
-            return;
-        }
-        
-        shutdown_requested_ = true;
-        running_ = false;
-    }
-    
-    // Wait for processing thread to finish
-    if (processing_thread_.joinable()) {
-        processing_thread_.join();
-    }
-    
     // Cleanup resources
     cleanupResources();
-    
-    initialized_ = false;
     logInfo("StreamManager shutdown complete");
 }
 
@@ -190,10 +166,7 @@ bool StreamManager::loadConfig(const std::string& config_path) {
         return false;
     }
     
-    if (initialized_) {
-        // Apply new configuration
-        applyConfiguration();
-    }
+    applyConfiguration();
     
     return true;
 }
@@ -206,9 +179,9 @@ bool StreamManager::updateConfig(const StreamManagerConfig& new_config) {
         return false;
     }
     
-    if (initialized_) {
-        applyConfiguration();
-    }
+
+    applyConfiguration();
+
     
     return true;
 }
@@ -269,60 +242,35 @@ const ScalingConfig& StreamManager::getScalingConfig() const {
     return config_manager_->getConfig().scaling;
 }
 
-size_t StreamManager::getPoolSlotSize() const {
-    const auto& config = config_manager_->getConfig();
-    if (config.scaling.enabled) {
-        // Calculate frame data size from scaling config
-        size_t frame_data_size = config.scaling.target_width * config.scaling.target_height * 3;
-        
-        // Ensure frame data doesn't exceed iceoryx max chunk size
-        if (frame_data_size > config.iceoryx.max_chunk_size) {
-            return sizeof(SharedFrameHeader) + config.iceoryx.max_chunk_size;
-        } else {
-            return sizeof(SharedFrameHeader) + frame_data_size;
-        }
-    } else {
-        // Use the configurable iceoryx max chunk size for frame data + header
-        return sizeof(SharedFrameHeader) + config.iceoryx.max_chunk_size;
-    }
-}
 
-size_t StreamManager::getTotalPoolMemoryUsage() const {
-    // Note: With iceoryx memory management, actual memory usage is managed by iceoryx
-    // This method returns the theoretical maximum if all buffer slots were used
-    const auto& config = config_manager_->getConfig();
-    return getPoolSlotSize() * config.buffer.max_size;
-}
 
 void StreamManager::processingThreadFunction() {
-    logInfo("Processing thread started");
     
     const auto& config = config_manager_->getConfig();
-    process_interval_ = std::chrono::duration<double>(1.0 / config.buffer.target_fps);
-    last_process_time_ = std::chrono::steady_clock::now();
+    process_interval_ros_ = rclcpp::Duration::from_seconds(1.0 / config.buffer.target_fps);
     
-    while (running_ && !shutdown_requested_) {
-        try {
-            if (shouldProcessFrame()) {
-                processFrame();
-                last_process_time_ = std::chrono::steady_clock::now();
-            }
-            
-            // Small sleep to prevent excessive CPU usage
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-            
-        } catch (const std::exception& e) {
-            logError("Error in processing thread: " + std::string(e.what()));
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        }
+    try {
+        if (shouldProcessFrame()) {
+            processFrame();
+            last_process_time_ros_ = this->get_clock()->now();
+        }        
+    } catch (const std::exception& e) {
+        logError("Error in processing thread: " + std::string(e.what()));
     }
     
-    logInfo("Processing thread stopped");
+    
 }
 
 bool StreamManager::createVideoSource() {
     const auto& config = config_manager_->getConfig().video_source;
     video_source_ = createVideoSourceFromConfig(config);
+    // Gazebo video source needs to be set up with the node
+    if (video_source_ != nullptr && config.type == VideoSourceConfig::SourceType::GAZEBO_ROS2) {
+        auto gazebo_source = dynamic_cast<GazeboVideoSource*>(video_source_.get());
+        if (gazebo_source) {
+            gazebo_source->setNode(shared_from_this());
+        }
+    }
     return video_source_ != nullptr;
 }
 
@@ -347,14 +295,15 @@ bool StreamManager::processFrame() {
     // Apply scaling if needed
     cv::Mat processed_frame = applyScaling(*frame);
     
-    // Add to buffer
+    // Add to buffer with ROS time
     double current_fps = video_source_->getFPS();
-    bool success = frame_buffer_->addFrame(processed_frame, current_fps);
+    uint64_t ros_now_ns = static_cast<uint64_t>(this->get_clock()->now().nanoseconds());
+    bool success = frame_buffer_->addFrame(processed_frame, current_fps, ros_now_ns);
     
     if (success) {
         // Update processing FPS using sliding window approach (no overflow)
-        auto now = std::chrono::steady_clock::now();
-        auto elapsed = std::chrono::duration<double>(now - last_fps_update_).count();
+        auto now = this->get_clock()->now();
+        auto elapsed = (now - last_fps_update_).seconds();
         
         frames_in_current_second_++;
         
@@ -363,6 +312,12 @@ bool StreamManager::processFrame() {
             last_fps_update_ = now;
             frames_in_current_second_ = 0;
         }
+    }
+    
+    // Publish frames if enabled
+    if (success) {
+        publishCurrentFrame();
+        publishDelayedFrame();
     }
     
     return success;
@@ -381,7 +336,7 @@ void StreamManager::applyConfiguration() {
     }
     
     // Update processing interval
-    process_interval_ = std::chrono::duration<double>(1.0 / config.buffer.target_fps);
+    process_interval_ros_ = rclcpp::Duration::from_seconds(1.0 / config.buffer.target_fps);
 }
 
 cv::Mat StreamManager::applyScaling(const cv::Mat& input_frame) const {
@@ -393,9 +348,9 @@ cv::Mat StreamManager::applyScaling(const cv::Mat& input_frame) const {
     return video_source_->scaleFrame(input_frame, scaling_config);
 }
 
-bool StreamManager::shouldProcessFrame() const {
-    auto now = std::chrono::steady_clock::now();
-    return (now - last_process_time_) >= process_interval_;
+bool StreamManager::shouldProcessFrame() {
+    auto now = this->get_clock()->now();
+    return (now - last_process_time_ros_) >= process_interval_ros_;
 }
 
 void StreamManager::logError(const std::string& message) const {
@@ -425,21 +380,19 @@ void StreamManager::cleanupResources() {
 void StreamManager::resetStatistics() {
     current_processing_fps_ = 0.0;
     frames_in_current_second_ = 0;
-    last_fps_update_ = std::chrono::steady_clock::now();
+    last_fps_update_ = this->get_clock()->now();
 }
 
 std::unique_ptr<VideoSourceBase> StreamManager::createVideoSourceFromConfig(const VideoSourceConfig& config) {
     switch (config.type) {
-#if ENABLE_GAZEBO
         case VideoSourceConfig::SourceType::GAZEBO_ROS2:
-            return std::make_unique<GazeboVideoSource>(config);
-#endif
+            return std::make_unique<GazeboVideoSource>(config, shared_from_this());
 
         case VideoSourceConfig::SourceType::USB_CAMERA:
-            return std::make_unique<USBVideoSource>(config);
+            return std::make_unique<USBVideoSource>(config, shared_from_this());
             
         case VideoSourceConfig::SourceType::MAVLINK:
-            return std::make_unique<MAVLinkVideoSource>(config);
+            return std::make_unique<MAVLinkVideoSource>(config, shared_from_this());
             
         default:
             logError("Unknown video source type");
@@ -447,70 +400,91 @@ std::unique_ptr<VideoSourceBase> StreamManager::createVideoSourceFromConfig(cons
     }
 }
 
-// Utility functions
-namespace utils {
 
-std::string videoSourceTypeToString(VideoSourceConfig::SourceType type) {
-    switch (type) {
-#if ENABLE_GAZEBO
-        case VideoSourceConfig::SourceType::GAZEBO_ROS2:
-            return "Gazebo ROS2";
-#endif
-        case VideoSourceConfig::SourceType::USB_CAMERA:
-            return "USB Camera";
-        case VideoSourceConfig::SourceType::MAVLINK:
-            return "MAVLink";
-        default:
-            return "Unknown";
+void StreamManager::setupPublishers() {
+    const auto& config = config_manager_->getConfig().publishing;
+    
+    if (config.enable_current_publishing) {
+        current_frame_publisher_ = this->create_publisher<shm_msgs::msg::Image1m>(
+            config.current_frame_topic, 10);
+    }
+    
+    if (config.enable_delayed_publishing) {
+        delayed_frame_publisher_ = this->create_publisher<shm_msgs::msg::Image1m>(
+            config.delayed_frame_topic, 10);
     }
 }
 
-VideoSourceConfig::SourceType stringToVideoSourceType(const std::string& type_str) {
-    if (type_str == "usb_camera" || type_str == "USB_CAMERA") {
-        return VideoSourceConfig::SourceType::USB_CAMERA;
-    } else if (type_str == "mavlink" || type_str == "MAVLINK") {
-        return VideoSourceConfig::SourceType::MAVLINK;
-    }
-#if ENABLE_GAZEBO
-    else if (type_str == "gazebo_ros2" || type_str == "GAZEBO_ROS2") {
-        return VideoSourceConfig::SourceType::GAZEBO_ROS2;
-    }
-#endif
 
+auto StreamManager::populateShmFrame(std::shared_ptr<FrameMetadata> metadata,std::shared_ptr<cv::Mat> frame,std::shared_ptr<shm_msgs::CvImage> cvimage){
+    cvimage->image = *frame;
+    cvimage->header.frame_id = "camera_frame";
+    cvimage->encoding = "bgr8";
     
-    return VideoSourceConfig::SourceType::USB_CAMERA; // Default
-}
-
-bool isValidFrameSize(int width, int height) {
-    return width > 0 && height > 0 && width <= 7680 && height <= 4320; // Up to 8K
-}
-
-cv::Size getOptimalFrameSize(const cv::Size& input_size, const cv::Size& target_size) {
-    if (!isValidFrameSize(target_size.width, target_size.height)) {
-        return input_size;
-    }
-    
-    // Calculate aspect ratios
-    double input_aspect = static_cast<double>(input_size.width) / input_size.height;
-    double target_aspect = static_cast<double>(target_size.width) / target_size.height;
-    
-    // If aspect ratios are close, use target size
-    if (std::abs(input_aspect - target_aspect) < 0.1) {
-        return target_size;
-    }
-    
-    // Otherwise, maintain aspect ratio
-    if (input_aspect > target_aspect) {
-        // Input is wider, fit to width
-        int new_height = static_cast<int>(target_size.width / input_aspect);
-        return cv::Size(target_size.width, new_height);
+    if (metadata) {
+        // use system timestamp from metadata
+        rclcpp::Time stamp(static_cast<int64_t>(metadata->timestamp_ns_system));
+        cvimage->header.stamp = stamp;
     } else {
-        // Input is taller, fit to height
-        int new_width = static_cast<int>(target_size.height * input_aspect);
-        return cv::Size(new_width, target_size.height);
+        cvimage->header.stamp = this->get_clock()->now();
+    }
+    auto loaned_msg = current_frame_publisher_->borrow_loaned_message();
+    auto& msg = loaned_msg.get();
+    cvimage->toImageMsg(msg);
+    return loaned_msg;
+}
+
+void StreamManager::publishCurrentFrame() {
+    if (!current_frame_publisher_) {
+        return;
+    }
+    
+    auto frame = getLatestBufferedFrame();
+    if (!frame || frame->empty()) {
+        return;
+    }
+    
+    try {
+        auto metadata = getLatestBufferedFrameMetadata();
+        auto loaned_msg = populateShmFrame(metadata, frame,current_cvimage);
+        current_frame_publisher_->publish(std::move(loaned_msg));
+    } catch (const cv_bridge::Exception& e) {
+        logError("Failed to convert frame for current publishing: " + std::string(e.what()));
     }
 }
 
-} // namespace utils
+void StreamManager::publishDelayedFrame() {
+    if (!delayed_frame_publisher_) {
+        return;
+    }
+    // new logic: pop oldest only if buffer is full
+    auto oldest_metadata = frame_buffer_->popOldestIfFull();
+    if (!oldest_metadata) {
+        return;
+    }
+    auto frame = getFrameFromOwnedData(*oldest_metadata);
+    if (!frame || frame->empty()) {
+        return;
+    }
+
+    try {
+        auto metadata = getLatestBufferedFrameMetadata();
+        auto loaned_msg = populateShmFrame(metadata, frame,delayed_cvimage);
+        delayed_frame_publisher_->publish(std::move(loaned_msg));
+    } catch (const cv_bridge::Exception& e) {
+        logError("Failed to convert frame for delayed publishing: " + std::string(e.what()));
+    }
+}
 
 } // namespace stream_manager
+
+  int main(int argc, char * argv[])
+  {
+    std::string config_path = ament_index_cpp::get_package_share_directory("stream_manager") + "/config/default_config.yaml";
+    rclcpp::init(argc, argv);
+    auto node = std::make_shared<stream_manager::StreamManager>(config_path);
+    node->initialize();
+    rclcpp::spin(node);
+    rclcpp::shutdown();
+    return 0;
+  }

@@ -3,12 +3,13 @@
 
 namespace stream_manager {
 
-USBVideoSource::USBVideoSource(const VideoSourceConfig& config)
-    : VideoSourceBase(config)
+USBVideoSource::USBVideoSource(const VideoSourceConfig& config, rclcpp::Node::SharedPtr node)
+    : VideoSourceBase(config,node)
     , camera_fps_(30.0)
     , frame_size_(640, 480)
     , camera_connected_(false)
-    , capture_running_(false) {
+     {
+    std::cout << "Statistics reset in usb video" << std::endl;
 }
 
 USBVideoSource::~USBVideoSource() {
@@ -47,27 +48,17 @@ bool USBVideoSource::initialize() {
     }
     
     initialized_ = true;
-    running_ = true;
-    capture_running_ = true;
     
-    // Start capture thread
-    capture_thread_ = std::thread(&USBVideoSource::captureThreadFunction, this);
+    // Use ROS timer
+    capture_timer_ = rclcpp::create_timer(node_.get(), node_->get_clock(), std::chrono::milliseconds(20), std::bind(&USBVideoSource::onCaptureTimer, this));
     
     return true;
 }
 
 void USBVideoSource::shutdown() {
-    if (!running_) {
-        return;
+    if (capture_timer_) {
+        capture_timer_.reset();
     }
-    
-    running_ = false;
-    capture_running_ = false;
-    
-    if (capture_thread_.joinable()) {
-        capture_thread_.join();
-    }
-    
     closeCamera();
     initialized_ = false;
 }
@@ -125,32 +116,24 @@ bool USBVideoSource::setFrameSize(int width, int height) {
     return success;
 }
 
-void USBVideoSource::captureThreadFunction() {
+
+
+void USBVideoSource::onCaptureTimer() {
+
     cv::Mat frame;
-    
-    while (capture_running_ && running_) {
-        if (!readFrame(frame)) {
-            // Failed to read frame, check connection
-            if (!testCameraConnection()) {
-                camera_connected_ = false;
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                continue;
-            }
-        } else {
-            // Successfully read frame
-            camera_connected_ = true;
-            last_successful_read_ = std::chrono::steady_clock::now();
-            
-            {
-                std::lock_guard<std::mutex> lock(frame_mutex_);
-                latest_frame_ = std::make_shared<cv::Mat>(frame.clone());
-            }
-            
-            updateFPSCalculation();
+    if (!readFrame(frame)) {
+        if (!testCameraConnection()) {
+            camera_connected_ = false;
+            return;
         }
-        
-        // Small delay to prevent excessive CPU usage
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    } else {
+        camera_connected_ = true;
+        last_successful_read_ = std::chrono::steady_clock::now();
+        {
+            std::lock_guard<std::mutex> lock(frame_mutex_);
+            latest_frame_ = std::make_shared<cv::Mat>(frame.clone());
+        }
+        updateFPSCalculation();
     }
 }
 

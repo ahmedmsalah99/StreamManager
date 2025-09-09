@@ -1,6 +1,6 @@
-# StreamManager Library
+# StreamManager ROS2 Node
 
-A comprehensive C++ video stream management library designed for robotics applications, featuring multiple video source support, intelligent buffering, and zero-copy shared memory using iceoryx.
+A comprehensive ROS2 video stream management node designed for robotics applications, featuring multiple video source support, intelligent buffering, and configurable frame publishing with delay capabilities.
 
 ## Features
 
@@ -21,10 +21,11 @@ A comprehensive C++ video stream management library designed for robotics applic
 - `getClosestFrame(timestamp)`: Find frame closest to specific time
 - `getFrameByIdx(index)`: Access frames by buffer index
 
-### 4. **Zero-Copy Shared Memory**
-- Uses iceoryx for efficient inter-process communication
-- Avoids memory copying even in `getFrame()` operations
-- Configurable shared memory chunk sizes
+### 4. **ROS2 Publishing**
+- Publishes current frames in real-time
+- Publishes delayed frames with configurable delay
+- Uses standard sensor_msgs/Image messages
+- Configurable topic names and publishing rates
 
 ### 5. **Automatic Frame Scaling**
 - Optional frame scaling before buffering
@@ -43,15 +44,22 @@ A comprehensive C++ video stream management library designed for robotics applic
 ```
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
 │   Video Source  │───▶│  StreamManager   │───▶│  Frame Buffer   │
-│   (Abstract)    │    │                  │    │                 │
+│   (Abstract)    │    │   (ROS2 Node)    │    │                 │
 └─────────────────┘    └──────────────────┘    └─────────────────┘
         │                        │                        │
         ▼                        ▼                        ▼
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
 │ • Gazebo ROS2   │    │ • Configuration  │    │ • Timestamped   │
 │ • USB Camera    │    │ • Frame Scaling  │    │   Frames        │
-│ • MAVLink       │    │ • Error Handling │    │ • Shared Memory │
+│ • MAVLink       │    │ • ROS2 Publishers│    │ • CPU Buffers   │
 └─────────────────┘    └──────────────────┘    └─────────────────┘
+                                │
+                                ▼
+                    ┌──────────────────┐
+                    │  ROS2 Topics     │
+                    │ • Current Frame  │
+                    │ • Delayed Frame  │
+                    └──────────────────┘
 ```
 
 ## Installation
@@ -59,21 +67,17 @@ A comprehensive C++ video stream management library designed for robotics applic
 ### Prerequisites
 
 ```bash
-# ROS2 (for Gazebo support)
+# ROS2 (required)
 sudo apt install ros-humble-desktop
 
 # OpenCV
 sudo apt install libopencv-dev
 
-# iceoryx (for shared memory)
-git clone https://github.com/eclipse-iceoryx/iceoryx.git
-cd iceoryx
-cmake -Bbuild -DCMAKE_BUILD_TYPE=Release
-cmake --build build
-sudo cmake --install build
-
 # yaml-cpp
 sudo apt install libyaml-cpp-dev
+
+# ros2_shm_msgs (for shared memory messages)
+sudo apt install ros-humble-shm-msgs
 ```
 
 ### Build
@@ -99,30 +103,54 @@ make -j$(nproc)
 
 ```cpp
 #include "stream_manager/stream_manager.hpp"
+#include <rclcpp/rclcpp.hpp>
 
-// Create manager with configuration file
-stream_manager::StreamManager manager("config/default_config.yaml");
-
-// Initialize
-if (!manager.initialize()) {
-    std::cerr << "Failed to initialize" << std::endl;
-    return -1;
+int main(int argc, char* argv[]) {
+    // Initialize ROS2
+    rclcpp::init(argc, argv);
+    
+    // Create StreamManager as a ROS2 node
+    auto manager = std::make_shared<stream_manager::StreamManager>(
+        "config/default_config.yaml", "stream_manager_node");
+    
+    // Initialize
+    if (!manager->initialize()) {
+        std::cerr << "Failed to initialize" << std::endl;
+        return -1;
+    }
+    
+    // Run the node
+    rclcpp::spin(manager);
+    
+    // Shutdown
+    rclcpp::shutdown();
+    return 0;
 }
-
-// Get latest frame
-auto frame = manager.getFrame();
-if (frame && !frame->empty()) {
-    // Process frame
-    cv::imshow("Video", *frame);
-}
-
-// Access buffered frames
-auto closest_frame = manager.getClosestFrame(target_timestamp);
-auto frame_by_index = manager.getFrameByIdx(5);
-
-// Shared memory access
-auto shared_frame = manager.getFrameFromSharedMemory();
 ```
+
+### Running the Node
+
+```bash
+# Source the workspace
+source install/setup.bash
+
+# Run the example
+ros2 run stream_manager basic_usage
+
+# Or run with custom config
+ros2 run stream_manager basic_usage --ros-args --params-file config/default_config.yaml
+```
+
+### Published Topics
+
+The StreamManager node publishes the following topics:
+
+- `/stream_manager/current_frame` (sensor_msgs/Image): Real-time frames
+- `/stream_manager/delayed_frame` (sensor_msgs/Image): Frames delayed by configured amount
+
+### Subscribed Topics
+
+- `/camera/image_raw` (sensor_msgs/Image): When using Gazebo video source
 
 ### Configuration
 
@@ -137,7 +165,6 @@ video_source:
 buffer:
   max_size: 30
   target_fps: 10.0
-  enable_timestamp_indexing: true
 
 scaling:
   enabled: true
@@ -145,10 +172,12 @@ scaling:
   target_height: 480
   interpolation_method: 1
 
-iceoryx:
-  service_name: "StreamManager"
-  instance_name: "VideoStream"
-  max_chunk_size: 6220800
+publishing:
+  current_frame_topic: "/stream_manager/current_frame"
+  delayed_frame_topic: "/stream_manager/delayed_frame"
+  delay_seconds: 1.0
+  enable_current_publishing: true
+  enable_delayed_publishing: true
 ```
 
 ### Video Source Types

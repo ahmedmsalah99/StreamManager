@@ -1,10 +1,10 @@
-#include "stream_manager_ros2/gazebo_video_source.hpp"
+#include "stream_manager/gazebo_video_source.hpp"
 #include <iostream>
 
 namespace stream_manager {
 
-GazeboVideoSource::GazeboVideoSource(const VideoSourceConfig& config)
-    : VideoSourceBase(config)
+GazeboVideoSource::GazeboVideoSource(const VideoSourceConfig& config, rclcpp::Node::SharedPtr node)
+    : VideoSourceBase(config,node)
     , receiving_messages_(false) {
     
     last_connection_check_ = std::chrono::steady_clock::now();
@@ -34,38 +34,26 @@ bool GazeboVideoSource::initialize() {
         return true;
     }
     
-    if (!initializeROS2()) {
-        return false;
-    }
+    // node_ is guaranteed by constructor
+    
+    createSubscription();
     
     initialized_ = true;
-    running_ = true;
-    
-    // Start executor thread
-    executor_thread_ = std::thread(&GazeboVideoSource::executorThreadFunction, this);
     
     return true;
 }
 
 void GazeboVideoSource::shutdown() {
-    if (!running_) {
-        return;
-    }
+
     
-    running_ = false;
-    
-    shutdownROS2();
-    
-    if (executor_thread_.joinable()) {
-        executor_thread_.join();
-    }
+    image_subscription_.reset();
     
     initialized_ = false;
 }
 
 bool GazeboVideoSource::isConnected() const {
     checkConnectionStatus();
-    return receiving_messages_ && running_;
+    return receiving_messages_;
 }
 
 std::string GazeboVideoSource::getSourceInfo() const {
@@ -108,27 +96,14 @@ void GazeboVideoSource::imageCallback(const sensor_msgs::msg::Image::SharedPtr m
     }
 }
 
-void GazeboVideoSource::executorThreadFunction() {
-    while (running_ && executor_) {
-        try {
-            executor_->spin_some(std::chrono::milliseconds(10));
-        } catch (const std::exception& e) {
-            std::cerr << "Error in executor thread: " << e.what() << std::endl;
-            break;
-        }
-    }
-}
+// node provided in ctor
 
-bool GazeboVideoSource::initializeROS2() {
+void GazeboVideoSource::createSubscription() {
+    if (!node_) {
+        return;
+    }
+    
     try {
-        // Initialize ROS2 if not already done
-        if (!rclcpp::ok()) {
-            rclcpp::init(0, nullptr);
-        }
-        
-        // Create node
-        node_ = rclcpp::Node::make_shared("gazebo_video_source_" + std::to_string(std::time(nullptr)));
-        
         // Create image subscription
         auto qos = rclcpp::QoS(rclcpp::KeepLast(1)).best_effort().durability_volatile();
         
@@ -140,31 +115,9 @@ bool GazeboVideoSource::initializeROS2() {
             }
         );
         
-        // Create executor
-        executor_ = std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
-        executor_->add_node(node_);
-        
-        return true;
-        
     } catch (const std::exception& e) {
-        std::cerr << "Failed to initialize ROS2: " << e.what() << std::endl;
-        return false;
+        std::cerr << "Failed to create subscription: " << e.what() << std::endl;
     }
-}
-
-void GazeboVideoSource::shutdownROS2() {
-    if (executor_) {
-        executor_->cancel();
-    }
-    
-    image_subscription_.reset();
-    
-    if (node_) {
-        executor_->remove_node(node_);
-        node_.reset();
-    }
-    
-    executor_.reset();
 }
 
 void GazeboVideoSource::checkConnectionStatus() const {

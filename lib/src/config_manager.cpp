@@ -59,9 +59,7 @@ bool ConfigManager::loadFromYAML(const YAML::Node& yaml_node) {
                 config_.buffer.target_fps = buffer_node["target_fps"].as<double>();
             }
             
-            if (buffer_node["enable_timestamp_indexing"]) {
-                config_.buffer.enable_timestamp_indexing = buffer_node["enable_timestamp_indexing"].as<bool>();
-            }
+            
         }
         
         // Load scaling configuration
@@ -85,24 +83,29 @@ bool ConfigManager::loadFromYAML(const YAML::Node& yaml_node) {
             }
         }
         
-        // Load iceoryx configuration
-        if (yaml_node["iceoryx"]) {
-            const auto& ice_node = yaml_node["iceoryx"];
+        
+        // Load publishing configuration
+        if (yaml_node["publishing"]) {
+            const auto& pub_node = yaml_node["publishing"];
             
-            if (ice_node["service_name"]) {
-                config_.iceoryx.service_name = ice_node["service_name"].as<std::string>();
+            if (pub_node["current_frame_topic"]) {
+                config_.publishing.current_frame_topic = pub_node["current_frame_topic"].as<std::string>();
             }
             
-            if (ice_node["instance_name"]) {
-                config_.iceoryx.instance_name = ice_node["instance_name"].as<std::string>();
+            if (pub_node["delayed_frame_topic"]) {
+                config_.publishing.delayed_frame_topic = pub_node["delayed_frame_topic"].as<std::string>();
             }
             
-            if (ice_node["event_name"]) {
-                config_.iceoryx.event_name = ice_node["event_name"].as<std::string>();
+            if (pub_node["delay_ms"]) {
+                config_.publishing.delay_ms = pub_node["delay_ms"].as<uint32_t>();
             }
             
-            if (ice_node["max_chunk_size"]) {
-                config_.iceoryx.max_chunk_size = ice_node["max_chunk_size"].as<size_t>();
+            if (pub_node["enable_current_publishing"]) {
+                config_.publishing.enable_current_publishing = pub_node["enable_current_publishing"].as<bool>();
+            }
+            
+            if (pub_node["enable_delayed_publishing"]) {
+                config_.publishing.enable_delayed_publishing = pub_node["enable_delayed_publishing"].as<bool>();
             }
         }
         
@@ -136,7 +139,6 @@ bool ConfigManager::saveToFile(const std::string& config_path) const {
         // Buffer configuration
         yaml_config["buffer"]["max_size"] = config_.buffer.max_size;
         yaml_config["buffer"]["target_fps"] = config_.buffer.target_fps;
-        yaml_config["buffer"]["enable_timestamp_indexing"] = config_.buffer.enable_timestamp_indexing;
         
         // Scaling configuration
         yaml_config["scaling"]["enabled"] = config_.scaling.enabled;
@@ -144,11 +146,12 @@ bool ConfigManager::saveToFile(const std::string& config_path) const {
         yaml_config["scaling"]["target_height"] = config_.scaling.target_height;
         yaml_config["scaling"]["interpolation_method"] = config_.scaling.interpolation_method;
         
-        // Iceoryx configuration
-        yaml_config["iceoryx"]["service_name"] = config_.iceoryx.service_name;
-        yaml_config["iceoryx"]["instance_name"] = config_.iceoryx.instance_name;
-        yaml_config["iceoryx"]["event_name"] = config_.iceoryx.event_name;
-        yaml_config["iceoryx"]["max_chunk_size"] = config_.iceoryx.max_chunk_size;
+        // Publishing configuration
+        yaml_config["publishing"]["current_frame_topic"] = config_.publishing.current_frame_topic;
+        yaml_config["publishing"]["delayed_frame_topic"] = config_.publishing.delayed_frame_topic;
+        yaml_config["publishing"]["delay_ms"] = config_.publishing.delay_ms;
+        yaml_config["publishing"]["enable_current_publishing"] = config_.publishing.enable_current_publishing;
+        yaml_config["publishing"]["enable_delayed_publishing"] = config_.publishing.enable_delayed_publishing;
         
         // Debug flag
         yaml_config["enable_debug_logging"] = config_.enable_debug_logging;
@@ -212,14 +215,7 @@ bool ConfigManager::validateConfig() const {
             break;
     }
     
-    // Validate iceoryx configuration
-    if (config_.iceoryx.service_name.empty() || config_.iceoryx.instance_name.empty()) {
-        errors << "Iceoryx service and instance names cannot be empty. ";
-    }
-    
-    if (config_.iceoryx.max_chunk_size < 1024) {
-        errors << "Iceoryx max_chunk_size should be at least 1024 bytes. ";
-    }
+    // No iceoryx validation
     
     validation_errors_ = errors.str();
     return validation_errors_.empty();

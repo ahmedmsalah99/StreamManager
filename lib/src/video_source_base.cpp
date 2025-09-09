@@ -4,20 +4,8 @@
 
 namespace stream_manager {
 
-VideoSourceBase::VideoSourceBase(const VideoSourceConfig& config)
-    : config_(config)
-    , initialized_(false)
-    , running_(false)
-    , calculated_fps_(0.0) {
-    
-    resetStatistics();
-}
 
-VideoSourceBase::~VideoSourceBase() {
-    if (running_) {
-        shutdown();
-    }
-}
+VideoSourceBase::~VideoSourceBase() {}
 
 cv::Mat VideoSourceBase::scaleFrame(const cv::Mat& input_frame, const ScalingConfig& scaling_config) const {
     if (!scaling_config.enabled || input_frame.empty()) {
@@ -57,50 +45,44 @@ double VideoSourceBase::getAverageFPS() const {
 void VideoSourceBase::updateFPSCalculation() const {
     std::lock_guard<std::mutex> lock(fps_mutex_);
     
-    auto now = std::chrono::steady_clock::now();
-    frame_timestamps_.push_back(now);
-    
-    // Keep only recent timestamps for FPS calculation (bounded size)
-    while (frame_timestamps_.size() > FPS_CALCULATION_WINDOW) {
-        frame_timestamps_.pop_front();
+    frame_timestamps_ros_.push_back(node_->get_clock()->now());
+    while (frame_timestamps_ros_.size() > FPS_CALCULATION_WINDOW) {
+        frame_timestamps_ros_.pop_front();
     }
-    
-    // Calculate FPS based on recent frames
-    if (frame_timestamps_.size() >= 2) {
-        auto time_span = frame_timestamps_.back() - frame_timestamps_.front();
-        auto duration_seconds = std::chrono::duration<double>(time_span).count();
-        
-        if (duration_seconds > 0.0) {
-            calculated_fps_ = static_cast<double>(frame_timestamps_.size() - 1) / duration_seconds;
+    if (frame_timestamps_ros_.size() >= 2) {
+        auto span = (frame_timestamps_ros_.back() - frame_timestamps_ros_.front()).seconds();
+        if (span > 0.0) {
+            calculated_fps_ = static_cast<double>(frame_timestamps_ros_.size() - 1) / span;
         }
     }
-    
-    // Update last frame time
-    last_frame_time_ = now;
+    last_frame_time_ros_ = node_->get_clock()->now();
 }
 
 void VideoSourceBase::resetStatistics() {
     std::lock_guard<std::mutex> lock(fps_mutex_);
     
     calculated_fps_ = 0.0;
-    frame_timestamps_.clear();
-    
+    frame_timestamps_ros_.clear();
+    std::cout << "cleared ros timestamp" << std::endl;
+    auto now_ros = node_->get_clock()->now();
+    last_frame_time_ros_ = now_ros;
+    std::cout << "got now ros timestamp" << std::endl;
+    // Mirror in steady clock as well for safety
     auto now = std::chrono::steady_clock::now();
+    std::cout << "got now timestamp" << std::endl;
     last_frame_time_ = now;
     timeout_start_ = now;
+    std::cout << "Statistics reset in video base" << std::endl;
 }
 
 bool VideoSourceBase::isTimedOut() const {
-    auto now = std::chrono::steady_clock::now();
-    
-    // Check if we have received any frames recently
-    if (frame_timestamps_.empty()) {
-        // Check initialization timeout
-        auto elapsed = std::chrono::duration<double>(now - timeout_start_).count();
+    auto now_ros2 = node_->get_clock()->now();
+    if (frame_timestamps_ros_.empty()) {
+        // since init (use steady timeout_start_ mirrored time if needed)
+        auto elapsed = (now_ros2 - last_frame_time_ros_).seconds();
         return elapsed > config_.timeout_seconds;
     } else {
-        // Check frame reception timeout
-        auto elapsed = std::chrono::duration<double>(now - last_frame_time_).count();
+        auto elapsed = (now_ros2 - last_frame_time_ros_).seconds();
         return elapsed > config_.timeout_seconds;
     }
 }

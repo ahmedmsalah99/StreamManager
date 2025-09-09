@@ -45,7 +45,6 @@ int main() {
     StreamManagerConfig buffer_config;
     buffer_config.buffer.max_size = 100;
     buffer_config.buffer.target_fps = 30.0;
-    buffer_config.buffer.enable_timestamp_indexing = true;
     
     config_manager.setConfig(buffer_config);
     assert(config_manager.validateConfig());
@@ -53,7 +52,6 @@ int main() {
     
     // Test 6: FrameMetadata structure
     FrameMetadata metadata(123, 30.0, 1920, 1080, 3, CV_8UC3, 0, 1920*1080*3);
-    assert(metadata.frame_id == 123);
     assert(metadata.fps == 30.0);
     assert(metadata.width == 1920);
     assert(metadata.height == 1080);

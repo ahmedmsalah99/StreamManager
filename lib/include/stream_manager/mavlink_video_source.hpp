@@ -3,7 +3,6 @@
 #include "video_source_base.hpp"
 #include <memory>
 #include <mutex>
-#include <thread>
 #include <string>
 #include <vector>
 #include <atomic>
@@ -16,7 +15,7 @@ struct VideoStreamInfo;
 
 class MAVLinkVideoSource : public VideoSourceBase {
 public:
-    explicit MAVLinkVideoSource(const VideoSourceConfig& config);
+    explicit MAVLinkVideoSource(const VideoSourceConfig& config, rclcpp::Node::SharedPtr node);
     ~MAVLinkVideoSource() override;
 
     // Implement pure virtual methods
@@ -31,7 +30,7 @@ public:
     // MAVLink specific methods
     bool requestVideoStream();
     bool stopVideoStream();
-    std::vector<VideoStreamInfo> getAvailableStreams() const;
+    // std::vector<VideoStreamInfo> getAvailableStreams() const;
     bool selectStream(int stream_id);
 
 private:
@@ -43,11 +42,12 @@ private:
     mutable std::mutex frame_mutex_;
     std::shared_ptr<cv::Mat> latest_frame_;
     
-    // Stream management
-    std::thread stream_thread_;
+    // Stream management 
     std::atomic<bool> streaming_;
     std::atomic<bool> stream_requested_;
     int current_stream_id_;
+    rclcpp::TimerBase::SharedPtr stream_timer_;
+    void onStreamTimer();
     
     // Connection status
     std::atomic<bool> mavlink_connected_;
@@ -69,7 +69,6 @@ private:
     std::vector<StreamInfo> available_streams_;
     
     // Methods
-    void streamThreadFunction();
     bool initializeMAVLink();
     void shutdownMAVLink();
     bool connectToMAVLink();

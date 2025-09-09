@@ -14,16 +14,8 @@ struct ScalingConfig {
 };
 
 struct BufferConfig {
-    size_t max_size = 30;
-    double target_fps = 10.0;
-    bool enable_timestamp_indexing = true;
-};
-
-struct IceoryxConfig {
-    std::string service_name = "StreamManager";
-    std::string instance_name = "VideoStream";
-    std::string event_name = "FrameEvent";
-    size_t max_chunk_size = 1920 * 1080 * 3; // Max frame size in bytes
+    size_t max_size = 30; // with target_fps = 30 the buffer will hold 1 second of frames
+    double target_fps = 30.0; // this will fill every 33 milliseconds
 };
 
 struct VideoSourceConfig {
@@ -40,11 +32,19 @@ struct VideoSourceConfig {
     double timeout_seconds = 5.0;
 };
 
+struct PublishingConfig {
+    std::string current_frame_topic = "/stream_manager/current_frame";
+    std::string delayed_frame_topic = "/stream_manager/delayed_frame";
+    uint32_t delay_ms = 50;  // Configurable delay for delayed frame
+    bool enable_current_publishing = true;
+    bool enable_delayed_publishing = true;
+};
+
 struct StreamManagerConfig {
     VideoSourceConfig video_source;
     BufferConfig buffer;
     ScalingConfig scaling;
-    IceoryxConfig iceoryx;
+    PublishingConfig publishing;
     bool enable_debug_logging = false;
 };
 

@@ -1,127 +1,159 @@
 cmake_minimum_required(VERSION 3.16)
 project(stream_manager)
 
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
-# Find required packages
-if(DEFINED ENV{COLCON_PREFIX_PATH})
-    find_package(ament_cmake REQUIRED)
-    find_package(rclcpp REQUIRED)
-    find_package(sensor_msgs REQUIRED)
-    find_package(cv_bridge REQUIRED)
-    add_definitions(-DENABLE_GAZEBO)
-    message("Building with colcon")
+# Default to C++17
+if(NOT CMAKE_CXX_STANDARD)
+  set(CMAKE_CXX_STANDARD 17)
 endif()
 
-find_package(OpenCV REQUIRED)
-find_package(iceoryx_posh REQUIRED)
-find_package(iceoryx_hoofs REQUIRED)
+if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  add_compile_options(-Wall -Wextra -Wpedantic)
+endif()
+
+
+find_package(shm_msgs REQUIRED)
+find_package(ament_cmake REQUIRED)
+find_package(builtin_interfaces REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(rcpputils REQUIRED)
+find_package(cv_bridge REQUIRED)
+find_package(pcl_conversions REQUIRED)
+find_package(message_filters REQUIRED)
+find_package(sensor_msgs REQUIRED)
+
+find_package(ament_cmake REQUIRED)
+find_package(Eigen3 REQUIRED)
+find_package(Open3D)
+find_package(Boost QUIET)
+find_package(PCL REQUIRED QUIET COMPONENTS common io)
+find_package(pcl_msgs REQUIRED)
+
+find_package(OpenCV 4 QUIET)
+if(NOT OpenCV_FOUND)
+  find_package(OpenCV 3 REQUIRED)
+endif()
+
+find_package(iceoryx_posh CONFIG REQUIRED)
+find_package(fastrtps CONFIG REQUIRED)
 find_package(yaml-cpp REQUIRED)
 
-# Include directories
-include_directories(include/stream_manager)
-include_directories(${OpenCV_INCLUDE_DIRS})
-if(DEFINED ENV{COLCON_PREFIX_PATH})
-    include_directories(include/stream_manager_ros2)
-endif()
-
-# Library sources
+# Define library sources
 set(LIBRARY_SOURCES
-    src/config_manager.cpp
-    src/frame_buffer.cpp
-    src/video_source_base.cpp
-    src/usb_video_source.cpp
-    src/mavlink_video_source.cpp
-    src/stream_manager.cpp
+    lib/src/config_manager.cpp
+    lib/src/frame_buffer.cpp
+    lib/src/video_source_base.cpp
+    lib/src/usb_video_source.cpp
+    lib/src/mavlink_video_source.cpp
+    lib/src/gazebo_video_source.cpp
 )
-if(DEFINED ENV{COLCON_PREFIX_PATH})
-    list(APPEND LIBRARY_SOURCES src/gazebo_video_source.cpp)
-endif()
 
-# Create the library
-add_library(${PROJECT_NAME} SHARED ${LIBRARY_SOURCES})
 
+# Create shared library
+add_executable(${PROJECT_NAME}_node src/stream_manager.cpp)
+# ROS 2 dependencies - this handles all ROS2 linking automatically
+ament_target_dependencies(${PROJECT_NAME}_node
+    rclcpp
+    sensor_msgs
+    cv_bridge
+    "shm_msgs"
+    builtin_interfaces
+)
+target_include_directories(${PROJECT_NAME}_node BEFORE PRIVATE
+    ${shm_msgs_DIR}/../../../include
+)
+# get_target_property(INC_DIRS ${PROJECT_NAME}_node INCLUDE_DIRECTORIES)
+# message(INFO "Include dirs for myTarget (direct): ${INC_DIRS}")
+
+
+target_include_directories(${PROJECT_NAME}_node PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>)
+
+add_library(${PROJECT_NAME}_library SHARED ${LIBRARY_SOURCES})
+
+target_include_directories(${PROJECT_NAME}_library PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/lib/include>
+  $<INSTALL_INTERFACE:include>)
 # Link libraries
-target_link_libraries(${PROJECT_NAME}
-    ${OpenCV_LIBS}
-    iceoryx_posh::iceoryx_posh
-    iceoryx_hoofs::iceoryx_hoofs
+target_link_libraries(${PROJECT_NAME}_library
+    ${OpenCV_LIBRARIES}
     yaml-cpp
 )
 
-if(DEFINED ENV{COLCON_PREFIX_PATH})
-    # ROS2 dependencies
-    ament_target_dependencies(${PROJECT_NAME}
-        rclcpp
-        sensor_msgs
-        cv_bridge
-    )
-endif()
+target_link_libraries(${PROJECT_NAME}_node
+    ${PROJECT_NAME}_library
+)
 
+
+ament_target_dependencies(${PROJECT_NAME}_library
+    rclcpp
+    sensor_msgs
+    cv_bridge
+    shm_msgs
+    builtin_interfaces
+)
+
+
+
+
+# Optional example executable
 if(BUILD_EXAMPLES)
     add_executable(basic_usage examples/basic_usage.cpp)
     target_link_libraries(basic_usage ${PROJECT_NAME})
-endif()
-
-
-# Install targets with proper export
-install(TARGETS ${PROJECT_NAME}
-    EXPORT ${PROJECT_NAME}Targets
-    LIBRARY DESTINATION lib
-    ARCHIVE DESTINATION lib
-    RUNTIME DESTINATION bin
-    INCLUDES DESTINATION include
-)
-
-install(DIRECTORY include/
-    DESTINATION include/
-)
-
-install(DIRECTORY config/
-    DESTINATION share/${PROJECT_NAME}/config/
-)
-
-# Install the export targets
-install(EXPORT ${PROJECT_NAME}Targets
-    FILE ${PROJECT_NAME}Targets.cmake
-    NAMESPACE ${PROJECT_NAME}::
-    DESTINATION lib/cmake/${PROJECT_NAME}
-)
-
-# Generate and install package config files
-include(CMakePackageConfigHelpers)
-
-configure_package_config_file(
-    cmake/${PROJECT_NAME}Config.cmake.in
-    ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Config.cmake
-    INSTALL_DESTINATION lib/cmake/${PROJECT_NAME}
-)
-
-write_basic_package_version_file(
-    ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake
-    VERSION 1.0.0
-    COMPATIBILITY SameMajorVersion
-)
-
-install(FILES
-    ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Config.cmake
-    ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake
-    DESTINATION lib/cmake/${PROJECT_NAME}
-)
-
-if(DEFINED ENV{COLCON_PREFIX_PATH})
-    # Export dependencies
-    ament_export_targets(${PROJECT_NAME}Targets HAS_LIBRARY_TARGET)
-    ament_export_dependencies(
+    
+    ament_target_dependencies(basic_usage
         rclcpp
-        sensor_msgs
-        cv_bridge
-        OpenCV
-        iceoryx_posh
-        iceoryx_hoofs
-        yaml-cpp
+        shm_msgs
     )
-
-    ament_package()
 endif()
+
+# Install library
+install(TARGETS ${PROJECT_NAME}_node
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+
+install(TARGETS ${PROJECT_NAME}_library
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+# Install include directory
+install(DIRECTORY include/
+  DESTINATION include/
+)
+
+install(DIRECTORY lib/include/
+  DESTINATION include/
+)
+
+# Install config directory if it exists
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/config)
+  install(DIRECTORY config/
+    DESTINATION share/${PROJECT_NAME}/config/
+  )
+endif()
+
+# Export information to downstream packages
+ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)
+ament_export_dependencies(
+    shm_msgs
+)
+
+# Install targets
+install(TARGETS ${PROJECT_NAME}_library
+  EXPORT export_${PROJECT_NAME}
+  LIBRARY DESTINATION lib
+  ARCHIVE DESTINATION lib
+  RUNTIME DESTINATION bin
+  INCLUDES DESTINATION include
+)
+
+# Testing
+if(BUILD_TESTING)
+  find_package(ament_lint_auto REQUIRED)
+  ament_lint_auto_find_test_dependencies()
+endif()
+
+ament_package()

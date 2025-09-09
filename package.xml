@@ -15,10 +15,11 @@
   <depend>sensor_msgs</depend>
   <depend>cv_bridge</depend>
   <depend>opencv</depend>
+  <depend>shm_msgs</depend>
+  <depend>libboost-dev</depend>
+  <depend>libyaml-cpp-dev</depend>
   
   <!-- External dependencies -->
-  <depend>iceoryx_posh</depend>
-  <depend>iceoryx_hoofs</depend>
   <depend>yaml-cpp</depend>
   
   <!-- Test dependencies -->

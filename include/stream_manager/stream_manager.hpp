@@ -1,49 +1,45 @@
 #pragma once
 
-#include "config_manager.hpp"
-#include "frame_buffer.hpp"
-#include "video_source_base.hpp"
-#if ENABLE_GAZEBO
-    #include "gazebo_video_source.hpp"
-#endif
-#include "usb_video_source.hpp"
-#include "mavlink_video_source.hpp"
+#include "stream_manager/config_manager.hpp"
+#include "stream_manager/frame_buffer.hpp"
+#include "stream_manager/video_source_base.hpp"
+#include "stream_manager/gazebo_video_source.hpp"
+#include "stream_manager/usb_video_source.hpp"
+#include "stream_manager/mavlink_video_source.hpp"
+#include <rclcpp/rclcpp.hpp>
+#include <shm_msgs/msg/image.hpp>
+#include "shm_msgs/opencv_conversions.hpp"
+#include <cv_bridge/cv_bridge.h>
 #include <memory>
-#include <thread>
 #include <atomic>
 #include <mutex>
 
 namespace stream_manager {
 
-class StreamManager {
+class StreamManager : public rclcpp::Node {
 public:
     explicit StreamManager(const std::string& config_path = "");
     explicit StreamManager(const StreamManagerConfig& config);
     ~StreamManager();
-
+    bool initialize();
     // Core interface methods - these abstract the video source complexity
     std::shared_ptr<cv::Mat> getFrame();
     double getFPS() const;
     
     // Buffer access methods (returns actual frames from shared memory)
-    std::shared_ptr<cv::Mat> getClosestFrame(const std::chrono::steady_clock::time_point& target_time) const;
+    std::shared_ptr<cv::Mat> getClosestFrame(const rclcpp::Time& target_time) const;
     std::shared_ptr<cv::Mat> getFrameByIdx(size_t index) const;
     std::shared_ptr<cv::Mat> getLatestBufferedFrame() const;
     
     // Metadata access methods (zero-copy, only metadata)
-    std::shared_ptr<FrameMetadata> getClosestFrameMetadata(const std::chrono::steady_clock::time_point& target_time) const;
+    std::shared_ptr<FrameMetadata> getClosestFrameMetadata(const rclcpp::Time& target_time) const;
     std::shared_ptr<FrameMetadata> getFrameMetadataByIdx(size_t index) const;
     std::shared_ptr<FrameMetadata> getLatestBufferedFrameMetadata() const;
+    std::shared_ptr<cv::Mat> getFrameFromOwnedData(const FrameMetadata& metadata) const;
     
-    // Direct shared memory access
-    std::shared_ptr<cv::Mat> getFrameFromSharedMemory() const;
-    std::shared_ptr<cv::Mat> getFrameFromSharedMemory(const FrameMetadata& metadata) const;
     
     // Lifecycle management
-    bool initialize();
     void shutdown();
-    bool isRunning() const { return running_; }
-    bool isInitialized() const { return initialized_; }
     
     // Configuration management
     bool loadConfig(const std::string& config_path);
@@ -64,9 +60,10 @@ public:
     // Scaling configuration (read-only during processing)
     const ScalingConfig& getScalingConfig() const;
     
-    // Get current memory usage information
-    size_t getPoolSlotSize() const;
-    size_t getTotalPoolMemoryUsage() const;
+    // ROS2 publishing methods
+    auto populateShmFrame(std::shared_ptr<FrameMetadata> metadata,std::shared_ptr<cv::Mat> frame,std::shared_ptr<shm_msgs::CvImage> cvimage);
+    void publishCurrentFrame();
+    void publishDelayedFrame();
 
 private:
     // Core components
@@ -74,23 +71,25 @@ private:
     std::unique_ptr<VideoSourceBase> video_source_;
     std::unique_ptr<FrameBuffer> frame_buffer_;
     
-    // Threading
-    std::thread processing_thread_;
-    std::atomic<bool> running_;
-    std::atomic<bool> initialized_;
-    std::atomic<bool> shutdown_requested_;
+    // Timer
+    rclcpp::TimerBase::SharedPtr timer_;
     
-    // Synchronization
-    mutable std::mutex manager_mutex_;
     
-    // Processing control
-    std::chrono::steady_clock::time_point last_process_time_;
-    std::chrono::duration<double> process_interval_;
+    // in include/stream_manager/stream_manager.hpp
+    rclcpp::Time last_process_time_ros_{this->get_clock()->now()};
+    rclcpp::Duration process_interval_ros_{0, 0};
     
     // Statistics (no overflow-prone counters)
     mutable std::atomic<double> current_processing_fps_;
-    mutable std::chrono::steady_clock::time_point last_fps_update_;
+    mutable rclcpp::Time last_fps_update_;
     mutable size_t frames_in_current_second_;
+    
+    // ROS2 publishers
+    rclcpp::Publisher<shm_msgs::msg::Image1m>::SharedPtr current_frame_publisher_;
+    rclcpp::Publisher<shm_msgs::msg::Image1m>::SharedPtr delayed_frame_publisher_;
+
+    std::shared_ptr<shm_msgs::CvImage> current_cvimage{std::make_shared<shm_msgs::CvImage>()};
+    std::shared_ptr<shm_msgs::CvImage> delayed_cvimage{std::make_shared<shm_msgs::CvImage>()};
     
     // Methods
     void processingThreadFunction();
@@ -104,7 +103,7 @@ private:
     
     // Frame processing
     cv::Mat applyScaling(const cv::Mat& input_frame) const;
-    bool shouldProcessFrame() const;
+    bool shouldProcessFrame();
     
     // Error handling and logging
     void logError(const std::string& message) const;
@@ -117,14 +116,11 @@ private:
     
     // Factory method for video sources
     std::unique_ptr<VideoSourceBase> createVideoSourceFromConfig(const VideoSourceConfig& config);
+    
+    // ROS2 setup methods
+    void setupPublishers();
 };
 
-// Utility functions
-namespace utils {
-    std::string videoSourceTypeToString(VideoSourceConfig::SourceType type);
-    VideoSourceConfig::SourceType stringToVideoSourceType(const std::string& type_str);
-    bool isValidFrameSize(int width, int height);
-    cv::Size getOptimalFrameSize(const cv::Size& input_size, const cv::Size& target_size);
-}
+
 
 } // namespace stream_manager

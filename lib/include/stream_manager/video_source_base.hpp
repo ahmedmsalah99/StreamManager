@@ -5,13 +5,13 @@
 #include <atomic>
 #include <thread>
 #include <chrono>
+#include <rclcpp/rclcpp.hpp>
 #include "config_manager.hpp"
 
 namespace stream_manager {
 
 class VideoSourceBase {
 public:
-    explicit VideoSourceBase(const VideoSourceConfig& config);
     virtual ~VideoSourceBase();
 
     // Pure virtual methods that must be implemented by derived classes
@@ -23,6 +23,11 @@ public:
     virtual void shutdown(){};
     virtual bool isConnected() const = 0;
     virtual std::string getSourceInfo() const = 0;
+    virtual void setNode(rclcpp::Node::SharedPtr node) { node_ = node; }
+    explicit VideoSourceBase(const VideoSourceConfig& config, rclcpp::Node::SharedPtr node) : config_(config), initialized_(false), last_frame_time_(std::chrono::steady_clock::now()), calculated_fps_(0.0), node_(std::move(node)) {
+        std::cout << "in video base" << std::endl;
+        resetStatistics();
+    }
     
     // Configuration and status
     const VideoSourceConfig& getConfig() const { return config_; }
@@ -39,14 +44,14 @@ public:
 protected:
     VideoSourceConfig config_;
     std::atomic<bool> initialized_;
-    std::atomic<bool> running_;
     
     // Frame statistics (no overflow-prone counters)
     mutable std::chrono::steady_clock::time_point last_frame_time_;
+    mutable rclcpp::Time last_frame_time_ros_;
     
     // FPS calculation using sliding window (bounded size)
     mutable std::mutex fps_mutex_;
-    mutable std::deque<std::chrono::steady_clock::time_point> frame_timestamps_;
+    mutable std::deque<rclcpp::Time> frame_timestamps_ros_;
     mutable double calculated_fps_;
     static constexpr size_t FPS_CALCULATION_WINDOW = 30;
     
@@ -57,6 +62,10 @@ protected:
     // Timeout handling
     bool isTimedOut() const;
     std::chrono::steady_clock::time_point timeout_start_;
+
+    // ROS2 integration for timers/clock
+    rclcpp::Node::SharedPtr node_;
+    rclcpp::TimerBase::SharedPtr timer_;
 };
 
 } // namespace stream_manager

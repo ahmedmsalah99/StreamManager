@@ -11,7 +11,7 @@ namespace stream_manager {
 
 class GazeboVideoSource : public VideoSourceBase {
 public:
-    explicit GazeboVideoSource(const VideoSourceConfig& config);
+    explicit GazeboVideoSource(const VideoSourceConfig& config, rclcpp::Node::SharedPtr node);
     ~GazeboVideoSource() override;
 
     // Implement pure virtual methods
@@ -22,13 +22,14 @@ public:
     void shutdown() override;
     bool isConnected() const override;
     std::string getSourceInfo() const override;
+    
+    // ROS2 integration - node provided in constructor
+    void createSubscription();
 
 private:
-    // ROS2 components
+    // ROS2 components - external node provided
     rclcpp::Node::SharedPtr node_;
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_subscription_;
-    rclcpp::executors::SingleThreadedExecutor::SharedPtr executor_;
-    std::thread executor_thread_;
     
     // Frame data
     mutable std::mutex frame_mutex_;
@@ -42,9 +43,6 @@ private:
     
     // Callbacks and helper methods
     void imageCallback(const sensor_msgs::msg::Image::SharedPtr msg);
-    void executorThreadFunction();
-    bool initializeROS2();
-    void shutdownROS2();
     void checkConnectionStatus() const;
 };
 

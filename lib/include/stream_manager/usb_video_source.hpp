@@ -5,12 +5,13 @@
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <rclcpp/rclcpp.hpp>
 
 namespace stream_manager {
 
 class USBVideoSource : public VideoSourceBase {
 public:
-    explicit USBVideoSource(const VideoSourceConfig& config);
+    explicit USBVideoSource(const VideoSourceConfig& config, rclcpp::Node::SharedPtr node);
     ~USBVideoSource() override;
 
     // Implement pure virtual methods
@@ -33,9 +34,9 @@ private:
     mutable std::mutex frame_mutex_;
     std::shared_ptr<cv::Mat> latest_frame_;
     
-    // Background capture thread
-    std::thread capture_thread_;
-    std::atomic<bool> capture_running_;
+    // ROS capture timer
+    rclcpp::TimerBase::SharedPtr capture_timer_;
+    void onCaptureTimer();
     
     // Camera properties
     double camera_fps_;
@@ -46,7 +47,6 @@ private:
     std::chrono::steady_clock::time_point last_successful_read_;
     
     // Methods
-    void captureThreadFunction();
     bool openCamera();
     void closeCamera();
     bool readFrame(cv::Mat& frame);

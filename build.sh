@@ -36,7 +36,7 @@ fi
 BUILD_TYPE="Debug"
 CLEAN_BUILD=false
 BUILD_EXAMPLES=true
-ROS2_BUILD=false
+ROS2_BUILD=true
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -62,7 +62,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --debug        Build in Debug mode (default: Release)"
             echo "  --clean        Clean build directory before building"
             echo "  --no-examples  Don't build examples"
-            echo "  --ros2         Build with ROS2 support using colcon"
+            echo "  --ros2         Build with ROS2 support using colcon (default)"
             echo "  --help         Show this help message"
             exit 0
             ;;
@@ -100,11 +100,7 @@ if ! pkg-config --exists yaml-cpp; then
     echo "  Ubuntu/Debian: sudo apt install libyaml-cpp-dev"
 fi
 
-# Check for iceoryx (this is trickier as it might not have pkg-config)
-if [ ! -d "/usr/local/include/iceoryx_posh" ] && [ ! -d "/usr/include/iceoryx_posh" ]; then
-    print_warning "iceoryx headers not found in standard locations."
-    print_warning "Make sure iceoryx is installed and headers are available."
-fi
+# No longer using iceoryx
 
 # ROS2 specific checks
 if [ "$ROS2_BUILD" = true ]; then
@@ -130,8 +126,10 @@ fi
 if [ "$ROS2_BUILD" = true ]; then
     print_status "Building with ROS2/colcon..."
     
-    # Go to workspace root (assuming we're in src/StreamManager)
-    cd ../..
+    # Go to workspace root if inside a ROS workspace; otherwise build here
+    if [ -d "../../src" ] && [ -f "../../src/$(basename $(pwd))/CMakeLists.txt" ]; then
+        cd ../..
+    fi
     
     if [ "$CLEAN_BUILD" = true ]; then
         print_status "Cleaning previous build..."

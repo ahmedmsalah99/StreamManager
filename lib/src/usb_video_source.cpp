@@ -24,7 +24,7 @@ std::shared_ptr<cv::Mat> USBVideoSource::getFrame() {
     }
     
     // Return a copy to avoid shared access issues
-    return std::make_shared<cv::Mat>(latest_frame_->clone());
+    return  std::make_shared<cv::Mat>(latest_frame_->clone());
 }
 
 double USBVideoSource::getFPS() const {
@@ -50,6 +50,7 @@ bool USBVideoSource::initialize() {
     initialized_ = true;
     
     // Use ROS timer
+    std::cout << "node here "<< node_ << std::endl;
     capture_timer_ = rclcpp::create_timer(node_.get(), node_->get_clock(), std::chrono::milliseconds(20), std::bind(&USBVideoSource::onCaptureTimer, this));
     
     return true;
@@ -131,7 +132,7 @@ void USBVideoSource::onCaptureTimer() {
         last_successful_read_ = std::chrono::steady_clock::now();
         {
             std::lock_guard<std::mutex> lock(frame_mutex_);
-            latest_frame_ = std::make_shared<cv::Mat>(frame.clone());
+            latest_frame_ = std::make_shared<cv::Mat>(frame);
         }
         updateFPSCalculation();
     }

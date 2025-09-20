@@ -264,13 +264,6 @@ void StreamManager::processingThreadFunction() {
 bool StreamManager::createVideoSource() {
     const auto& config = config_manager_->getConfig().video_source;
     video_source_ = createVideoSourceFromConfig(config);
-    // Gazebo video source needs to be set up with the node
-    if (video_source_ != nullptr && config.type == VideoSourceConfig::SourceType::GAZEBO_ROS2) {
-        auto gazebo_source = dynamic_cast<GazeboVideoSource*>(video_source_.get());
-        if (gazebo_source) {
-            gazebo_source->setNode(shared_from_this());
-        }
-    }
     return video_source_ != nullptr;
 }
 
@@ -386,6 +379,7 @@ void StreamManager::resetStatistics() {
 std::unique_ptr<VideoSourceBase> StreamManager::createVideoSourceFromConfig(const VideoSourceConfig& config) {
     switch (config.type) {
         case VideoSourceConfig::SourceType::GAZEBO_ROS2:
+            logInfo("gazebo ros2 video source");
             return std::make_unique<GazeboVideoSource>(config, shared_from_this());
 
         case VideoSourceConfig::SourceType::USB_CAMERA:

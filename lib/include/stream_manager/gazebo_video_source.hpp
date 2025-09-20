@@ -27,8 +27,6 @@ public:
     void createSubscription();
 
 private:
-    // ROS2 components - external node provided
-    rclcpp::Node::SharedPtr node_;
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_subscription_;
     
     // Frame data

@@ -2,7 +2,7 @@
 
 # Video source configuration
 video_source:
-  type: "usb_camera"  # Options: "gazebo_ros2", "usb_camera", "mavlink"
+  type: "gazebo_ros2"  # Options: "gazebo_ros2", "usb_camera", "mavlink"
   topic_name: "/camera/image_raw"  # For ROS2/Gazebo
   device_id: 0  # For USB camera
   mavlink_address: "udp://127.0.0.1:14550"  # For MAVLink

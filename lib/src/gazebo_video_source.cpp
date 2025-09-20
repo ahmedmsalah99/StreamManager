@@ -33,7 +33,7 @@ bool GazeboVideoSource::initialize() {
     if (initialized_) {
         return true;
     }
-    
+    std::cout << "initialize gazebo video source" << std::endl;
     // node_ is guaranteed by constructor
     
     createSubscription();
@@ -100,16 +100,17 @@ void GazeboVideoSource::imageCallback(const sensor_msgs::msg::Image::SharedPtr m
 
 void GazeboVideoSource::createSubscription() {
     if (!node_) {
+        std::cerr << "Node not provided for GazeboVideoSource" << std::endl;
         return;
     }
     
     try {
         // Create image subscription
-        auto qos = rclcpp::QoS(rclcpp::KeepLast(1)).best_effort().durability_volatile();
-        
+        // auto qos = rclcpp::QoS(rclcpp::KeepLast(1)).best_effort().durability_volatile();
+        std::cout << "Creating subscription to topic: " << config_.topic_name << std::endl;
         image_subscription_ = node_->create_subscription<sensor_msgs::msg::Image>(
             config_.topic_name,
-            qos,
+            10,
             [this](const sensor_msgs::msg::Image::SharedPtr msg) {
                 this->imageCallback(msg);
             }

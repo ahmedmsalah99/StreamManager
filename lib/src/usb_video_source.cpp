@@ -46,7 +46,7 @@ bool USBVideoSource::initialize() {
   // Use ROS timer
   std::cout << "node here " << node_ << std::endl;
   capture_timer_ = rclcpp::create_timer(
-      node_.get(), node_->get_clock(), std::chrono::milliseconds(20),
+      node_.get(), node_->get_clock(), rclcpp::Duration::from_seconds(0.02),
       std::bind(&USBVideoSource::onCaptureTimer, this));
 
   return true;
@@ -122,7 +122,7 @@ void USBVideoSource::onCaptureTimer() {
     }
   } else {
     camera_connected_ = true;
-    last_successful_read_ = std::chrono::steady_clock::now();
+    last_successful_read_ = node_->get_clock()->now();
     {
       std::lock_guard<std::mutex> lock(frame_mutex_);
       latest_frame_ = std::make_shared<cv::Mat>(frame);

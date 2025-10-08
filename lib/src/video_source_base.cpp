@@ -73,7 +73,7 @@ void VideoSourceBase::resetStatistics() {
   last_frame_time_ros_ = now_ros;
   std::cout << "got now ros timestamp" << std::endl;
   // Mirror in steady clock as well for safety
-  auto now = std::chrono::steady_clock::now();
+  auto now = node_->get_clock()->now();
   std::cout << "got now timestamp" << std::endl;
   last_frame_time_ = now;
   timeout_start_ = now;

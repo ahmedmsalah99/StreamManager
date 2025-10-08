@@ -2,7 +2,6 @@
 
 #include "config_manager.hpp"
 #include <atomic>
-#include <chrono>
 #include <memory>
 #include <opencv2/opencv.hpp>
 #include <rclcpp/rclcpp.hpp>
@@ -27,7 +26,6 @@ public:
   explicit VideoSourceBase(const VideoSourceConfig &config,
                            rclcpp::Node::SharedPtr node)
       : config_(config), initialized_(false),
-        last_frame_time_(std::chrono::steady_clock::now()),
         calculated_fps_(0.0), node_(std::move(node)) {
     std::cout << "in video base" << std::endl;
     resetStatistics();
@@ -44,7 +42,7 @@ public:
                     const ScalingConfig &scaling_config) const;
 
   // Statistics
-  virtual std::chrono::steady_clock::time_point getLastFrameTime() const {
+  virtual rclcpp::Time getLastFrameTime() const {
     return last_frame_time_;
   }
   virtual double getAverageFPS() const;
@@ -54,7 +52,7 @@ protected:
   std::atomic<bool> initialized_;
 
   // Frame statistics (no overflow-prone counters)
-  mutable std::chrono::steady_clock::time_point last_frame_time_;
+  mutable rclcpp::Time last_frame_time_;
   mutable rclcpp::Time last_frame_time_ros_;
 
   // FPS calculation using sliding window (bounded size)
@@ -69,7 +67,7 @@ protected:
 
   // Timeout handling
   bool isTimedOut() const;
-  std::chrono::steady_clock::time_point timeout_start_;
+  rclcpp::Time timeout_start_;
 
   // ROS2 integration for timers/clock
   rclcpp::Node::SharedPtr node_;

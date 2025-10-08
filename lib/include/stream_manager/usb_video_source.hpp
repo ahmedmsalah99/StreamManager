@@ -45,7 +45,7 @@ private:
 
   // Connection monitoring
   std::atomic<bool> camera_connected_;
-  std::chrono::steady_clock::time_point last_successful_read_;
+  rclcpp::Time last_successful_read_;
 
   // Methods
   bool openCamera();

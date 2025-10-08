@@ -44,7 +44,7 @@ bool MAVLinkVideoSource::initialize() {
   initialized_ = true;
 
   stream_timer_ = rclcpp::create_timer(
-      node_.get(), node_->get_clock(), std::chrono::milliseconds(20),
+      node_.get(), node_->get_clock(), rclcpp::Duration::from_seconds(0.02),
       std::bind(&MAVLinkVideoSource::onStreamTimer, this));
 
   return true;
@@ -185,7 +185,7 @@ bool MAVLinkVideoSource::processVideoFrame(
       std::lock_guard<std::mutex> lock(frame_mutex_);
       latest_frame_ = std::make_shared<cv::Mat>(frame.clone());
     }
-    last_frame_received_ = std::chrono::steady_clock::now();
+    last_frame_received_ = node_->get_clock()->now();
     updateFPSCalculation();
     return true;
   } catch (const std::exception &) {
@@ -194,7 +194,7 @@ bool MAVLinkVideoSource::processVideoFrame(
 }
 
 void MAVLinkVideoSource::handleHeartbeat() {
-  last_heartbeat_ = std::chrono::steady_clock::now();
+  last_heartbeat_ = node_->get_clock()->now();
 }
 
 void MAVLinkVideoSource::handleVideoStreamInformation(
@@ -219,8 +219,8 @@ bool MAVLinkVideoSource::parseConnectionString() {
 }
 
 void MAVLinkVideoSource::updateConnectionStatus() {
-  auto now = std::chrono::steady_clock::now();
-  if ((now - last_heartbeat_) > HEARTBEAT_TIMEOUT) {
+  auto now = node_->get_clock()->now();
+  if ((now - last_heartbeat_) > rclcpp::Duration::from_seconds(HEARTBEAT_TIMEOUT)) {
     mavlink_connected_ = false;
   }
 }

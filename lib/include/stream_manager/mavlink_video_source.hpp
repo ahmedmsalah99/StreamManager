@@ -52,8 +52,8 @@ private:
 
   // Connection status
   std::atomic<bool> mavlink_connected_;
-  std::chrono::steady_clock::time_point last_heartbeat_;
-  std::chrono::steady_clock::time_point last_frame_received_;
+  rclcpp::Time last_heartbeat_;
+  rclcpp::Time last_frame_received_;
 
   // Stream information
   struct StreamInfo {
@@ -90,8 +90,7 @@ private:
   void resetStreamState();
 
   // Constants
-  static constexpr std::chrono::seconds HEARTBEAT_TIMEOUT{10};
-  static constexpr std::chrono::seconds FRAME_TIMEOUT{5};
+  static constexpr double HEARTBEAT_TIMEOUT = 10.0;
   static constexpr int DEFAULT_STREAM_ID = 0;
 };
 

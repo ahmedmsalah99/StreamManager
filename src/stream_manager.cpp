@@ -48,74 +48,19 @@ double StreamManager::getFPS() const {
   return video_source_->getFPS();
 }
 
-std::shared_ptr<cv::Mat>
-StreamManager::getClosestFrame(const rclcpp::Time &target_time) const {
-  if (!frame_buffer_) {
-    return nullptr;
-  }
 
-  // convert ROS time to ns epoch and query buffer
-  uint64_t target_time_ns = static_cast<uint64_t>(target_time.nanoseconds());
-  auto metadata =
-      frame_buffer_->getClosestFrameMetadataBySystemNs(target_time_ns);
-  if (!metadata) {
-    return nullptr;
-  }
-  return frame_buffer_->getFrameFromOwnedData(*metadata);
-}
 
-std::shared_ptr<cv::Mat> StreamManager::getFrameByIdx(size_t index) const {
-  if (!frame_buffer_) {
-    return nullptr;
-  }
 
-  return frame_buffer_->getFrameByIdx(index);
-}
 
-std::shared_ptr<cv::Mat> StreamManager::getLatestBufferedFrame() const {
-  if (!frame_buffer_) {
-    return nullptr;
-  }
 
-  return frame_buffer_->getLatestFrame();
-}
 
-std::shared_ptr<FrameMetadata>
-StreamManager::getClosestFrameMetadata(const rclcpp::Time &target_time) const {
-  if (!frame_buffer_) {
-    return nullptr;
-  }
 
-  // convert ROS time to ns epoch and leverage FrameBuffer's ns-based search
-  uint64_t target_time_ns = static_cast<uint64_t>(target_time.nanoseconds());
-  return frame_buffer_->getClosestFrameMetadataBySystemNs(target_time_ns);
-}
 
-std::shared_ptr<FrameMetadata>
-StreamManager::getFrameMetadataByIdx(size_t index) const {
-  if (!frame_buffer_) {
-    return nullptr;
-  }
 
-  return frame_buffer_->getFrameMetadataByIdx(index);
-}
 
-std::shared_ptr<FrameMetadata>
-StreamManager::getLatestBufferedFrameMetadata() const {
-  if (!frame_buffer_) {
-    return nullptr;
-  }
 
-  return frame_buffer_->getLatestFrameMetadata();
-}
 
-std::shared_ptr<cv::Mat>
-StreamManager::getFrameFromOwnedData(const FrameMetadata &metadata) const {
-  if (!frame_buffer_) {
-    return nullptr;
-  }
-  return frame_buffer_->getFrameFromOwnedData(metadata);
-}
+
 
 bool StreamManager::initialize() {
 
@@ -124,9 +69,6 @@ bool StreamManager::initialize() {
              config_manager_->getValidationErrors());
     return false;
   }
-  // Create frame buffer
-  const auto &config = config_manager_->getConfig();
-  frame_buffer_ = std::make_unique<FrameBuffer>(config.buffer);
   // Setup ROS2 publishers
   setupPublishers();
 
@@ -155,7 +97,6 @@ bool StreamManager::initialize() {
 
 void StreamManager::shutdown() {
   // Cleanup resources
-  cleanupResources();
   logInfo("StreamManager shutdown complete");
 }
 
@@ -200,21 +141,6 @@ std::string StreamManager::getVideoSourceInfo() const {
   return video_source_->getSourceInfo();
 }
 
-size_t StreamManager::getBufferSize() const {
-  if (!frame_buffer_) {
-    return 0;
-  }
-
-  return frame_buffer_->getBufferSize();
-}
-
-double StreamManager::getBufferTargetFPS() const {
-  if (!frame_buffer_) {
-    return 0.0;
-  }
-
-  return frame_buffer_->getTargetFPS();
-}
 
 double StreamManager::getAverageSourceFPS() const {
   if (!video_source_) {
@@ -224,17 +150,6 @@ double StreamManager::getAverageSourceFPS() const {
   return video_source_->getAverageFPS();
 }
 
-void StreamManager::setBufferTargetFPS(double fps) {
-  if (frame_buffer_ && fps > 0.0) {
-    frame_buffer_->setTargetFPS(fps);
-  }
-}
-
-void StreamManager::clearBuffer() {
-  if (frame_buffer_) {
-    frame_buffer_->clearBuffer();
-  }
-}
 
 const ScalingConfig &StreamManager::getScalingConfig() const {
   return config_manager_->getConfig().scaling;
@@ -270,7 +185,7 @@ void StreamManager::destroyVideoSource() {
 }
 
 bool StreamManager::processFrame() {
-  if (!video_source_ || !frame_buffer_) {
+  if (!video_source_) {
     return false;
   }
 
@@ -283,35 +198,31 @@ bool StreamManager::processFrame() {
   // Apply scaling if needed
   cv::Mat processed_frame = applyScaling(*frame);
 
-  // Add to buffer with ROS time
+  // Store current frame and metadata
+  current_frame_ = std::make_shared<cv::Mat>(processed_frame);
   double current_fps = video_source_->getFPS();
   uint64_t ros_now_ns =
       static_cast<uint64_t>(this->get_clock()->now().nanoseconds());
-  bool success =
-      frame_buffer_->addFrame(processed_frame, current_fps, ros_now_ns);
+  current_metadata_ = std::make_shared<FrameMetadata>(ros_now_ns, current_fps);
 
-  if (success) {
-    // Update processing FPS using sliding window approach (no overflow)
-    auto now = this->get_clock()->now();
-    auto elapsed = (now - last_fps_update_).seconds();
+  // Update processing FPS using sliding window approach (no overflow)
+  auto now = this->get_clock()->now();
+  auto elapsed = (now - last_fps_update_).seconds();
 
-    frames_in_current_second_++;
+  frames_in_current_second_++;
 
-    if (elapsed >= 1.0) {
-      current_processing_fps_ =
-          static_cast<double>(frames_in_current_second_) / elapsed;
-      last_fps_update_ = now;
-      frames_in_current_second_ = 0;
-    }
+  if (elapsed >= 1.0) {
+    current_processing_fps_ =
+        static_cast<double>(frames_in_current_second_) / elapsed;
+    last_fps_update_ = now;
+    frames_in_current_second_ = 0;
   }
 
   // Publish frames if enabled
-  if (success) {
-    publishCurrentFrame();
-    publishDelayedFrame();
-  }
+  publishCurrentFrame();
+  publishDelayedFrame();
 
-  return success;
+  return true;
 }
 
 bool StreamManager::validateConfiguration() const {
@@ -320,11 +231,6 @@ bool StreamManager::validateConfiguration() const {
 
 void StreamManager::applyConfiguration() {
   const auto &config = config_manager_->getConfig();
-
-  // Update frame buffer target FPS
-  if (frame_buffer_) {
-    frame_buffer_->setTargetFPS(config.buffer.target_fps);
-  }
 
   // Update processing interval
   process_interval_ros_ =
@@ -363,11 +269,6 @@ void StreamManager::logDebug(const std::string &message) const {
   }
 }
 
-void StreamManager::cleanupResources() {
-  destroyVideoSource();
-  frame_buffer_.reset();
-  resetStatistics();
-}
 
 void StreamManager::resetStatistics() {
   current_processing_fps_ = 0.0;
@@ -429,18 +330,12 @@ auto StreamManager::populateShmFrame(
 }
 
 void StreamManager::publishCurrentFrame() {
-  if (!current_frame_publisher_) {
-    return;
-  }
-
-  auto frame = getLatestBufferedFrame();
-  if (!frame || frame->empty()) {
+  if (!current_frame_publisher_ || !current_frame_ || current_frame_->empty()) {
     return;
   }
 
   try {
-    auto metadata = getLatestBufferedFrameMetadata();
-    auto loaned_msg = populateShmFrame(metadata, frame, current_cvimage);
+    auto loaned_msg = populateShmFrame(current_metadata_, current_frame_, current_cvimage);
     current_frame_publisher_->publish(std::move(loaned_msg));
   } catch (const cv_bridge::Exception &e) {
     logError("Failed to convert frame for current publishing: " +
@@ -449,27 +344,8 @@ void StreamManager::publishCurrentFrame() {
 }
 
 void StreamManager::publishDelayedFrame() {
-  if (!delayed_frame_publisher_) {
-    return;
-  }
-  // new logic: pop oldest only if buffer is full
-  auto oldest_metadata = frame_buffer_->popOldestIfFull();
-  if (!oldest_metadata) {
-    return;
-  }
-  auto frame = getFrameFromOwnedData(*oldest_metadata);
-  if (!frame || frame->empty()) {
-    return;
-  }
-
-  try {
-    auto metadata = getLatestBufferedFrameMetadata();
-    auto loaned_msg = populateShmFrame(metadata, frame, delayed_cvimage);
-    delayed_frame_publisher_->publish(std::move(loaned_msg));
-  } catch (const cv_bridge::Exception &e) {
-    logError("Failed to convert frame for delayed publishing: " +
-             std::string(e.what()));
-  }
+  // Disabled delayed publishing since frame_buffer is removed
+  return;
 }
 
 } // namespace stream_manager

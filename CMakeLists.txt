@@ -42,7 +42,6 @@ find_package(yaml-cpp REQUIRED)
 # Define library sources
 set(LIBRARY_SOURCES
     lib/src/config_manager.cpp
-    lib/src/frame_buffer.cpp
     lib/src/video_source_base.cpp
     lib/src/usb_video_source.cpp
     lib/src/mavlink_video_source.cpp

@@ -18,9 +18,7 @@ A comprehensive ROS2 video stream management node designed for robotics applicat
 - Configurable buffer size for storing recent frames
 - Custom target FPS (can be lower than input video FPS)
 - Timestamp-based frame indexing
-- `getClosestFrame(timestamp)`: Find frame closest to specific time
 - `getFrameByIdx(index)`: Access frames by buffer index
-
 ### 4. **ROS2 Publishing**
 - Publishes current frames in real-time
 - Publishes delayed frames with configurable delay
@@ -214,7 +212,6 @@ video_source:
 - `double getFPS() const`: Get current FPS
 
 #### Buffer Access
-- `std::shared_ptr<FrameData> getClosestFrame(timestamp)`: Get frame closest to timestamp
 - `std::shared_ptr<FrameData> getFrameByIdx(index)`: Get frame by buffer index
 - `std::shared_ptr<FrameData> getLatestBufferedFrame()`: Get latest buffered frame
 

@@ -2,7 +2,6 @@
 
 #include "shm_msgs/opencv_conversions.hpp"
 #include "stream_manager/config_manager.hpp"
-#include "stream_manager/frame_buffer.hpp"
 #include "stream_manager/gazebo_video_source.hpp"
 #include "stream_manager/mavlink_video_source.hpp"
 #include "stream_manager/usb_video_source.hpp"
@@ -13,6 +12,13 @@
 #include <mutex>
 #include <rclcpp/rclcpp.hpp>
 #include <shm_msgs/msg/image.hpp>
+
+// Define FrameMetadata struct
+struct FrameMetadata {
+  uint64_t timestamp_ns_system;
+  double fps;
+  FrameMetadata(uint64_t ts, double f) : timestamp_ns_system(ts), fps(f) {}
+};
 
 namespace stream_manager {
 
@@ -26,19 +32,7 @@ public:
   std::shared_ptr<cv::Mat> getFrame();
   double getFPS() const;
 
-  // Buffer access methods (returns actual frames from shared memory)
-  std::shared_ptr<cv::Mat>
-  getClosestFrame(const rclcpp::Time &target_time) const;
-  std::shared_ptr<cv::Mat> getFrameByIdx(size_t index) const;
-  std::shared_ptr<cv::Mat> getLatestBufferedFrame() const;
 
-  // Metadata access methods (zero-copy, only metadata)
-  std::shared_ptr<FrameMetadata>
-  getClosestFrameMetadata(const rclcpp::Time &target_time) const;
-  std::shared_ptr<FrameMetadata> getFrameMetadataByIdx(size_t index) const;
-  std::shared_ptr<FrameMetadata> getLatestBufferedFrameMetadata() const;
-  std::shared_ptr<cv::Mat>
-  getFrameFromOwnedData(const FrameMetadata &metadata) const;
 
   // Lifecycle management
   void shutdown();
@@ -51,13 +45,8 @@ public:
   // Status and statistics
   bool isVideoSourceConnected() const;
   std::string getVideoSourceInfo() const;
-  size_t getBufferSize() const;
-  double getBufferTargetFPS() const;
   double getAverageSourceFPS() const;
 
-  // Buffer management
-  void setBufferTargetFPS(double fps);
-  void clearBuffer();
 
   // Scaling configuration (read-only during processing)
   const ScalingConfig &getScalingConfig() const;
@@ -73,7 +62,6 @@ private:
   // Core components
   std::unique_ptr<ConfigManager> config_manager_;
   std::unique_ptr<VideoSourceBase> video_source_;
-  std::unique_ptr<FrameBuffer> frame_buffer_;
 
   // Timer
   rclcpp::TimerBase::SharedPtr timer_;
@@ -96,6 +84,10 @@ private:
   std::shared_ptr<shm_msgs::CvImage> delayed_cvimage{
       std::make_shared<shm_msgs::CvImage>()};
 
+  // Current processed frame for publishing
+  std::shared_ptr<cv::Mat> current_frame_;
+  std::shared_ptr<FrameMetadata> current_metadata_;
+
   // Methods
   void processingThreadFunction();
   bool createVideoSource();
@@ -116,7 +108,6 @@ private:
   void logDebug(const std::string &message) const;
 
   // Cleanup helpers
-  void cleanupResources();
   void resetStatistics();
 
   // Factory method for video sources

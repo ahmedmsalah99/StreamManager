@@ -41,6 +41,8 @@ public:
   bool loadConfig(const std::string &config_path);
   bool updateConfig(const StreamManagerConfig &new_config);
   const StreamManagerConfig &getConfig() const;
+  void useParametersConfigs();
+  StreamManagerConfig paramsToConfig();
 
   // Status and statistics
   bool isVideoSourceConnected() const;

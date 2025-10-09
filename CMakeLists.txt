@@ -139,7 +139,10 @@ ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)
 ament_export_dependencies(
     shm_msgs
 )
-
+install(
+  DIRECTORY launch
+  DESTINATION share/${PROJECT_NAME}
+)
 # Install targets
 install(TARGETS ${PROJECT_NAME}_library
   EXPORT export_${PROJECT_NAME}

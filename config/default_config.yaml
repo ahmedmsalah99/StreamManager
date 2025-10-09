@@ -10,7 +10,6 @@ video_source:
 
 # Frame buffer configuration
 buffer:
-  max_size: 3  # Maximum number of frames to keep in buffer
   target_fps: 50.0  # Target FPS for buffer filling (can be less than input FPS)
 
 # Frame scaling configuration
@@ -23,10 +22,7 @@ scaling:
 # ROS2 publishing configuration
 publishing:
   current_frame_topic: "/stream_manager/current_frame"
-  delayed_frame_topic: "/stream_manager/delayed_frame"
-  delay_ms: 50  # Delay for delayed frame publishing in milliseconds
   enable_current_publishing: true
-  enable_delayed_publishing: true
 
 # Debug settings
 enable_debug_logging: true

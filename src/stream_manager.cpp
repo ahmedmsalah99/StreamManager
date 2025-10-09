@@ -6,6 +6,10 @@
 
 namespace stream_manager {
 
+
+
+
+
 StreamManager::StreamManager(const std::string &config_path)
     : rclcpp::Node("StreamManager"), current_processing_fps_(0.0),
       frames_in_current_second_(0) {
@@ -17,7 +21,7 @@ StreamManager::StreamManager(const std::string &config_path)
     loadConfig(config_path);
   } else {
     // Use default configuration
-    config_manager_->setConfig(StreamManagerConfig{});
+    useParametersConfigs();
   }
 }
 
@@ -32,6 +36,87 @@ StreamManager::StreamManager(const StreamManagerConfig &config)
 
 StreamManager::~StreamManager() { shutdown(); }
 
+void StreamManager::useParametersConfigs(){
+  // --- Video source configuration ---
+  this->declare_parameter<std::string>("video_source.type", "gazebo_ros2");
+  this->declare_parameter<std::string>("video_source.topic_name", "/camera/image_raw");
+  this->declare_parameter<int>("video_source.device_id", 0);
+  this->declare_parameter<std::string>("video_source.mavlink_address", "udp://127.0.0.1:14550");
+  this->declare_parameter<double>("video_source.timeout_seconds", 5.0);
+
+  // --- Frame buffer configuration ---
+  this->declare_parameter<double>("buffer.target_fps", 50.0);
+
+  // --- Frame scaling configuration ---
+  this->declare_parameter<bool>("scaling.enabled", false);
+  this->declare_parameter<int>("scaling.target_width", 640);
+  this->declare_parameter<int>("scaling.target_height", 480);
+  this->declare_parameter<int>("scaling.interpolation_method", 1);
+
+  // --- ROS2 publishing configuration ---
+  this->declare_parameter<std::string>("publishing.current_frame_topic", "/stream_manager/current_frame");
+  this->declare_parameter<bool>("publishing.enable_current_publishing", true);
+
+  // --- Debug settings ---
+  this->declare_parameter<bool>("enable_debug_logging", true);
+
+  StreamManagerConfig config = paramsToConfig();
+  config_manager_->setConfig(config);
+}
+StreamManagerConfig StreamManager::paramsToConfig()
+{
+  StreamManagerConfig config;
+
+  // --- Video source configuration ---
+  std::string type_str = this->get_parameter("video_source.type").as_string();
+  if (type_str == "gazebo_ros2")
+    config.video_source.type = VideoSourceConfig::SourceType::GAZEBO_ROS2;
+  else if (type_str == "usb_camera")
+    config.video_source.type = VideoSourceConfig::SourceType::USB_CAMERA;
+  else if (type_str == "mavlink")
+    config.video_source.type = VideoSourceConfig::SourceType::MAVLINK;
+  else {
+    RCLCPP_WARN(this->get_logger(),
+                "Unknown video_source.type '%s', defaulting to USB_CAMERA",
+                type_str.c_str());
+    config.video_source.type = VideoSourceConfig::SourceType::USB_CAMERA;
+  }
+
+  config.video_source.topic_name =
+      this->get_parameter("video_source.topic_name").as_string();
+  config.video_source.device_id =
+      this->get_parameter("video_source.device_id").as_int();
+  config.video_source.mavlink_address =
+      this->get_parameter("video_source.mavlink_address").as_string();
+  config.video_source.timeout_seconds =
+      this->get_parameter("video_source.timeout_seconds").as_double();
+
+  // --- Frame buffer configuration ---
+  config.buffer.target_fps =
+      this->get_parameter("buffer.target_fps").as_double();
+
+  // --- Frame scaling configuration ---
+  config.scaling.enabled =
+      this->get_parameter("scaling.enabled").as_bool();
+  config.scaling.target_width =
+      this->get_parameter("scaling.target_width").as_int();
+  config.scaling.target_height =
+      this->get_parameter("scaling.target_height").as_int();
+  config.scaling.interpolation_method =
+      this->get_parameter("scaling.interpolation_method").as_int();
+
+  // --- ROS2 publishing configuration ---
+  config.publishing.current_frame_topic =
+      this->get_parameter("publishing.current_frame_topic").as_string();
+  config.publishing.enable_current_publishing =
+      this->get_parameter("publishing.enable_current_publishing").as_bool();
+
+  // --- Debug settings ---
+  config.enable_debug_logging =
+      this->get_parameter("enable_debug_logging").as_bool();
+
+  return config;
+}
 std::shared_ptr<cv::Mat> StreamManager::getFrame() {
   if (!video_source_) {
     return nullptr;
@@ -351,11 +436,12 @@ void StreamManager::publishDelayedFrame() {
 } // namespace stream_manager
 
 int main(int argc, char *argv[]) {
-  std::string config_path =
-      ament_index_cpp::get_package_share_directory("stream_manager") +
-      "/config/default_config.yaml";
+  // std::string config_path =
+  //     ament_index_cpp::get_package_share_directory("stream_manager") +
+  //     "/config/default_config.yaml";
   rclcpp::init(argc, argv);
-  auto node = std::make_shared<stream_manager::StreamManager>(config_path);
+  // auto node = std::make_shared<stream_manager::StreamManager>(config_path);
+  auto node = std::make_shared<stream_manager::StreamManager>();
   node->initialize();
   rclcpp::spin(node);
   rclcpp::shutdown();

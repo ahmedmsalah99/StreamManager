@@ -1,0 +1,29 @@
+stream_manager:
+  ros__parameters:
+
+    # --- Video source configuration ---
+    video_source:
+      type: "gazebo_ros2"           # Options: "gazebo_ros2", "usb_camera", "mavlink"
+      topic_name: "/camera/image_raw"  # For ROS2/Gazebo
+      device_id: 0                     # For USB camera
+      mavlink_address: "udp://127.0.0.1:14550"  # For MAVLink
+      timeout_seconds: 5.0
+
+    # --- Frame buffer configuration ---
+    buffer:
+      target_fps: 50.0   # Target FPS for buffer filling (Hz)
+
+    # --- Frame scaling configuration ---
+    scaling:
+      enabled: false
+      target_width: 640
+      target_height: 480
+      interpolation_method: 1   # OpenCV interpolation method (0=NEAREST, 1=LINEAR, 2=CUBIC, etc.)
+
+    # --- ROS2 publishing configuration ---
+    publishing:
+      current_frame_topic: "/stream_manager/current_frame"
+      enable_current_publishing: true
+
+    # --- Debug settings ---
+    enable_debug_logging: true

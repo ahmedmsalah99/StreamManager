@@ -11,11 +11,11 @@ stream_manager:
 
     # --- Frame buffer configuration ---
     buffer:
-      target_fps: 50.0   # Target FPS for buffer filling (Hz)
+      target_fps: 30.0   # Target FPS for buffer filling (Hz)
 
     # --- Frame scaling configuration ---
     scaling:
-      enabled: false
+      enabled: true
       target_width: 640
       target_height: 480
       interpolation_method: 1   # OpenCV interpolation method (0=NEAREST, 1=LINEAR, 2=CUBIC, etc.)

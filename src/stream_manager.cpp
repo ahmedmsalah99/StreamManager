@@ -5,11 +5,7 @@
 #include <std_msgs/msg/header.hpp>
 
 namespace stream_manager {
-
-
-
-
-
+  
 StreamManager::StreamManager(const std::string &config_path)
     : rclcpp::Node("StreamManager"), current_processing_fps_(0.0),
       frames_in_current_second_(0) {

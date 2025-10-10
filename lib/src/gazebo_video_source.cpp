@@ -72,8 +72,11 @@ void GazeboVideoSource::imageCallback(
   try {
     // Convert ROS image to OpenCV format
     cv_bridge::CvImagePtr cv_ptr =
-        cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
-
+        cv_bridge::toCvCopy(msg, msg->encoding);//sensor_msgs::image_encodings::BGR8);
+    // Check encoding and convert to BGR if needed
+    if (msg->encoding == sensor_msgs::image_encodings::RGB8) {
+      cv::cvtColor(cv_ptr->image, cv_ptr->image, cv::COLOR_RGB2BGR);
+    }
     if (!cv_ptr || cv_ptr->image.empty()) {
       return;
     }
